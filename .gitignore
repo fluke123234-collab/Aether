@@ -66,3 +66,6 @@ db/*.db
 db/*.db-journal
 db/*.db-shm
 db/*.db-wal
+
+# verification screenshots
+preview-*.png
