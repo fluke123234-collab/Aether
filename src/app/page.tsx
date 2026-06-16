@@ -19,9 +19,13 @@ import {
   Coffee,
   ArrowRight,
   Loader2,
+  Heart,
+  LogOut,
   type LucideIcon,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useAuthStore, ensureAuthenticated } from '@/lib/auth-store'
+import { AuthModal } from '@/components/aether/AuthModal'
 
 /* ──────────────────────────────────────────────────────────────
    Types & helpers — live data layer (no more static mocks)
@@ -107,6 +111,10 @@ function TheGlow() {
    ────────────────────────────────────────────────────────────── */
 
 function TopRail() {
+  const user = useAuthStore((s) => s.user)
+  const openModal = useAuthStore((s) => s.openModal)
+  const signOut = useAuthStore((s) => s.signOut)
+
   return (
     <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#FAFAFA]/70 border-b border-zinc-100/60">
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-5 sm:px-8">
@@ -118,13 +126,21 @@ function TopRail() {
           Aether
         </a>
 
-        {/* Omnipresent search */}
+        {/* Omnipresent search — guarded on submit */}
         <div className="ml-2 hidden flex-1 sm:block">
           <label className="group relative flex items-center">
             <Search className="pointer-events-none absolute left-4 h-4 w-4 text-zinc-400 transition-colors duration-300 group-focus-within:text-purple-500" />
             <input
               type="text"
               placeholder="Search the sanctuary…"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  ensureAuthenticated(() =>
+                    toast('Searching your sanctuary…', { description: 'Aether is gathering matches.' })
+                  )
+                }
+              }}
               className="h-10 w-full max-w-md rounded-full bg-white border border-zinc-100 pl-11 pr-16 text-sm text-zinc-700 placeholder:text-zinc-400 shadow-[inset_0_1px_2px_rgb(0,0,0,0.03)] focus:ring-0 focus:outline-none focus:border-zinc-200 transition-all duration-300"
             />
             <kbd className="absolute right-3 hidden md:flex items-center gap-1 rounded-md border border-zinc-100 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">
@@ -136,10 +152,28 @@ function TopRail() {
         {/* Spacer for mobile where search hides */}
         <div className="flex-1 sm:hidden" />
 
-        {/* Sign in pill */}
-        <button className="shrink-0 rounded-full border border-transparent bg-zinc-900/0 px-5 py-2 text-sm font-medium text-zinc-600 transition-all duration-300 hover:bg-zinc-900 hover:text-white hover:shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-          Sign in
-        </button>
+        {/* Account pill — reactive to session */}
+        {user ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-indigo-500 text-xs font-semibold text-white shadow-[0_4px_16px_rgba(139,92,246,0.3)]">
+              {user.name.charAt(0).toUpperCase()}
+            </div>
+            <button
+              aria-label="Sign out"
+              onClick={signOut}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 hover:bg-zinc-100 hover:text-zinc-700"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={openModal}
+            className="shrink-0 rounded-full border border-transparent bg-zinc-900/0 px-5 py-2 text-sm font-medium text-zinc-600 transition-all duration-300 hover:bg-zinc-900 hover:text-white hover:shadow-[0_8px_30px_rgb(0,0,0,0.12)]"
+          >
+            Sign in
+          </button>
+        )}
       </div>
     </header>
   )
@@ -156,13 +190,15 @@ function FocusCapsule({
 }) {
   const [value, setValue] = useState('')
 
-  // ⚡ Snappy frontend optimism — clear the bar instantly and hand off to the
-  // parent, which pushes an optimistic card + fires the POST without blocking.
+  // ⚡ Snappy frontend optimism — but the guard intercepts first: a signed-out
+  // user never reaches the capture flow; the auth modal pops instantly instead.
   const handleSubmit = () => {
     const text = value.trim()
     if (!text) return
-    setValue('')
-    onCapture(text)
+    ensureAuthenticated(() => {
+      setValue('')
+      onCapture(text)
+    })
   }
 
   return (
@@ -201,9 +237,39 @@ function FocusCapsule({
 
           {/* Micro-action triggers */}
           <div className="flex items-center gap-0.5">
-            <CapsuleAction icon={ImageIcon} label="Attach image" />
-            <CapsuleAction icon={Link2} label="Attach link" />
-            <CapsuleAction icon={Mic} label="Voice capture" />
+            <CapsuleAction
+              icon={ImageIcon}
+              label="Attach image"
+              onClick={() =>
+                ensureAuthenticated(() =>
+                  toast('Image attach is coming soon.', {
+                    description: 'This phase focuses on the guard.',
+                  })
+                )
+              }
+            />
+            <CapsuleAction
+              icon={Link2}
+              label="Attach link"
+              onClick={() =>
+                ensureAuthenticated(() =>
+                  toast('Link attach is coming soon.', {
+                    description: 'This phase focuses on the guard.',
+                  })
+                )
+              }
+            />
+            <CapsuleAction
+              icon={Mic}
+              label="Voice capture"
+              onClick={() =>
+                ensureAuthenticated(() =>
+                  toast('Voice capture is coming soon.', {
+                    description: 'This phase focuses on the guard.',
+                  })
+                )
+              }
+            />
 
             {/* Send */}
             <button
@@ -237,13 +303,16 @@ function FocusCapsule({
 function CapsuleAction({
   icon: Icon,
   label,
+  onClick,
 }: {
   icon: LucideIcon
   label: string
+  onClick?: () => void
 }) {
   return (
     <button
       aria-label={label}
+      onClick={onClick}
       className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 ease-out hover:bg-purple-50/80 hover:text-purple-600 scale-100 hover:scale-105 active:scale-95"
     >
       <Icon className="h-5 w-5" />
@@ -284,7 +353,16 @@ function RecapBlock() {
                 </div>
               </div>
             ))}
-            <button className="group ml-auto inline-flex items-center gap-2 rounded-full bg-white/10 px-5 py-2.5 text-sm font-medium text-white backdrop-blur-sm transition-all duration-300 hover:bg-white hover:text-purple-700">
+            <button
+              onClick={() =>
+                ensureAuthenticated(() =>
+                  toast('Opening your 24h recap…', {
+                    description: 'Aether is distilling your day.',
+                  })
+                )
+              }
+              className="group ml-auto inline-flex items-center gap-2 rounded-full bg-white/10 px-5 py-2.5 text-sm font-medium text-white backdrop-blur-sm transition-all duration-300 hover:bg-white hover:text-purple-700"
+            >
               Read the recap
               <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
             </button>
@@ -302,9 +380,13 @@ function RecapBlock() {
 function MemoryFeed({
   memories,
   loading,
+  favorites,
+  onToggleFavorite,
 }: {
   memories: MemoryRow[]
   loading: boolean
+  favorites: Set<string>
+  onToggleFavorite: (id: string) => void
 }) {
   return (
     <section className="mx-auto w-full max-w-6xl px-5">
@@ -317,7 +399,16 @@ function MemoryFeed({
             A gentle stream of what you’ve kept.
           </p>
         </div>
-        <button className="group inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 transition-colors duration-300 hover:text-zinc-900">
+        <button
+          onClick={() =>
+            ensureAuthenticated(() =>
+              toast('Opening your full archive…', {
+                description: 'Every kept thought, in one place.',
+              })
+            )
+          }
+          className="group inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 transition-colors duration-300 hover:text-zinc-900"
+        >
           View all
           <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
         </button>
@@ -330,7 +421,12 @@ function MemoryFeed({
       ) : (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {memories.map((m) => (
-            <MemoryCard key={m.id} memory={m} />
+            <MemoryCard
+              key={m.id}
+              memory={m}
+              favorited={favorites.has(m.id)}
+              onToggleFavorite={onToggleFavorite}
+            />
           ))}
         </div>
       )}
@@ -338,7 +434,15 @@ function MemoryFeed({
   )
 }
 
-function MemoryCard({ memory }: { memory: MemoryRow }) {
+function MemoryCard({
+  memory,
+  favorited,
+  onToggleFavorite,
+}: {
+  memory: MemoryRow
+  favorited: boolean
+  onToggleFavorite: (id: string) => void
+}) {
   const pills = memory.tags ?? []
   const processing = memory.processing === true
   return (
@@ -351,9 +455,23 @@ function MemoryCard({ memory }: { memory: MemoryRow }) {
             <CategoryIcon category={memory.category} className="h-5 w-5" />
           )}
         </div>
-        <span className="text-xs text-zinc-400">
-          {processing ? 'Refining…' : timeAgo(memory.created_at)}
-        </span>
+        <div className="flex items-center gap-2">
+          {/* Favorite toggle — guarded: a guest never favorites, the modal intercepts. */}
+          <button
+            aria-label={favorited ? 'Remove from favorites' : 'Add to favorites'}
+            onClick={() => ensureAuthenticated(() => onToggleFavorite(memory.id))}
+            className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-300 hover:scale-110 active:scale-95 ${
+              favorited
+                ? 'text-rose-500'
+                : 'text-zinc-300 hover:text-rose-400'
+            }`}
+          >
+            <Heart className={`h-4 w-4 ${favorited ? 'fill-current' : ''}`} />
+          </button>
+          <span className="text-xs text-zinc-400">
+            {processing ? 'Refining…' : timeAgo(memory.created_at)}
+          </span>
+        </div>
       </div>
 
       <h4 className="mb-2 text-[15px] font-semibold tracking-tight text-zinc-900">
@@ -456,8 +574,13 @@ function Footer() {
 export default function Home() {
   const [memories, setMemories] = useState<MemoryRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [favorites, setFavorites] = useState<Set<string>>(new Set())
 
   useEffect(() => {
+    // Rehydrate the persisted auth session (store uses skipHydration so the
+    // first render matches the server — no hydration mismatch).
+    void useAuthStore.persist.rehydrate()
+
     let active = true
     const load = async () => {
       const { data, error } = await supabase
@@ -566,6 +689,16 @@ export default function Home() {
     [refetch]
   )
 
+  // Favorite toggle — only ever called once ensureAuthenticated has passed.
+  const toggleFavorite = useCallback((id: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
   return (
     <div className="relative flex min-h-screen flex-col">
       <TheGlow />
@@ -574,10 +707,18 @@ export default function Home() {
       <main className="flex flex-1 flex-col gap-24 px-0 py-20 sm:py-28">
         <FocusCapsule onCapture={addMemory} />
         <RecapBlock />
-        <MemoryFeed memories={memories} loading={loading} />
+        <MemoryFeed
+          memories={memories}
+          loading={loading}
+          favorites={favorites}
+          onToggleFavorite={toggleFavorite}
+        />
       </main>
 
       <Footer />
+
+      {/* Phase 4 — the global security guard's premium interceptor */}
+      <AuthModal />
 
       <SonnerToaster
         position="bottom-center"
