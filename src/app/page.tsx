@@ -1,6 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { formatDistanceToNow } from 'date-fns'
+import { toast, Toaster as SonnerToaster } from 'sonner'
 import {
   Search,
   Image as ImageIcon,
@@ -13,67 +15,62 @@ import {
   BookOpen,
   Compass,
   Feather,
+  Palette,
+  Coffee,
   ArrowRight,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 /* ──────────────────────────────────────────────────────────────
-   Static mock data — perfectly styled states, no backend yet.
+   Types & helpers — live data layer (no more static mocks)
    ────────────────────────────────────────────────────────────── */
 
-type Memory = {
-  icon: LucideIcon
+type MemoryRow = {
+  id: string
   title: string
   body: string
-  time: string
-  pills: string[]
+  category: string | null
+  tags: string[] | null
+  created_at: string
 }
 
-const memories: Memory[] = [
-  {
-    icon: Lightbulb,
-    title: 'Ambient sound as a service',
-    body: 'An app that composes adaptive soundscapes from the room\u2019s live acoustics \u2014 silence becomes an instrument.',
-    time: '2h ago',
-    pills: ['product', 'audio'],
-  },
-  {
-    icon: BookOpen,
-    title: 'On the economy of attention',
-    body: 'Reread \u201cThe Slight Edge\u201d. Compounding is not about intensity, but the quiet weight of small unfelt choices.',
-    time: '5h ago',
-    pills: ['reading', 'philosophy'],
-  },
-  {
-    icon: Compass,
-    title: 'Q3 direction: fewer, deeper',
-    body: 'Three pillars only. Ship one thing so well it feels inevitable. Decline everything that dilutes the core.',
-    time: 'Yesterday',
-    pills: ['strategy', 'focus'],
-  },
-  {
-    icon: Feather,
-    title: 'A line worth keeping',
-    body: '\u201cLuxury is the absence of friction, felt as ease.\u201d \u2014 overheard, unattributed. Save for the manifesto.',
-    time: 'Yesterday',
-    pills: ['writing'],
-  },
-  {
-    icon: Lightbulb,
-    title: 'Memory as architecture',
-    body: 'What if recall was spatial \u2014 a building you wander, not a list you scroll? Museums, not spreadsheets.',
-    time: '2d ago',
-    pills: ['product', 'design'],
-  },
-  {
-    icon: BookOpen,
-    title: 'Tea ceremony, translated',
-    body: 'The four principles \u2014 harmony, respect, purity, tranquility \u2014 map cleanly onto a calmer product workflow.',
-    time: '3d ago',
-    pills: ['ritual', 'design'],
-  },
-]
+function timeAgo(iso: string): string {
+  try {
+    return formatDistanceToNow(new Date(iso), { addSuffix: true })
+  } catch {
+    return ''
+  }
+}
 
+/* Static icon renderer — keeps component references stable for the compiler. */
+function CategoryIcon({
+  category,
+  className,
+}: {
+  category: string | null
+  className?: string
+}) {
+  switch (category) {
+    case 'idea':
+      return <Lightbulb className={className} />
+    case 'reading':
+      return <BookOpen className={className} />
+    case 'strategy':
+      return <Compass className={className} />
+    case 'quote':
+      return <Feather className={className} />
+    case 'design':
+      return <Palette className={className} />
+    case 'ritual':
+      return <Coffee className={className} />
+    default:
+      return <Sparkles className={className} />
+  }
+}
+
+/* The recap block keeps its own display config (out of Phase 2 scope). */
 const recapStats = [
   { label: 'captured', value: '12' },
   { label: 'refined', value: '4' },
@@ -146,11 +143,25 @@ function TopRail() {
 }
 
 /* ──────────────────────────────────────────────────────────────
-   The Focus Capture Capsule
+   The Focus Capture Capsule — now writes to Supabase
    ────────────────────────────────────────────────────────────── */
 
-function FocusCapsule() {
+function FocusCapsule({
+  onCapture,
+}: {
+  onCapture: (text: string) => Promise<boolean>
+}) {
   const [value, setValue] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleSubmit = async () => {
+    const text = value.trim()
+    if (!text || submitting) return
+    setSubmitting(true)
+    const ok = await onCapture(text)
+    setSubmitting(false)
+    if (ok) setValue('')
+  }
 
   return (
     <section className="mx-auto w-full max-w-3xl px-5 text-center">
@@ -176,6 +187,12 @@ function FocusCapsule() {
           <input
             value={value}
             onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleSubmit()
+              }
+            }}
             placeholder="Capture a thought, or ask Aether…"
             className="h-12 flex-1 bg-transparent text-[15px] text-zinc-800 placeholder:text-zinc-500 focus:outline-none focus:ring-0"
           />
@@ -188,11 +205,16 @@ function FocusCapsule() {
 
             {/* Send */}
             <button
-              aria-label="Send"
+              aria-label="Capture thought"
+              onClick={handleSubmit}
+              disabled={!value.trim() || submitting}
               className="ml-1 flex h-11 w-11 items-center justify-center rounded-full bg-zinc-900 text-white transition-all duration-300 hover:bg-purple-600 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:scale-100"
-              disabled={!value.trim()}
             >
-              <ArrowUp className="h-5 w-5" />
+              {submitting ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <ArrowUp className="h-5 w-5" />
+              )}
             </button>
           </div>
         </div>
@@ -276,10 +298,16 @@ function RecapBlock() {
 }
 
 /* ──────────────────────────────────────────────────────────────
-   The Saner-Style Memory Feed
+   The Saner-Style Memory Feed — now reads live from Supabase
    ────────────────────────────────────────────────────────────── */
 
-function MemoryFeed() {
+function MemoryFeed({
+  memories,
+  loading,
+}: {
+  memories: MemoryRow[]
+  loading: boolean
+}) {
   return (
     <section className="mx-auto w-full max-w-6xl px-5">
       <div className="mb-8 flex items-end justify-between">
@@ -297,24 +325,30 @@ function MemoryFeed() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {memories.map((m, i) => (
-          <MemoryCard key={i} memory={m} />
-        ))}
-      </div>
+      {loading ? (
+        <SkeletonGrid />
+      ) : memories.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {memories.map((m) => (
+            <MemoryCard key={m.id} memory={m} />
+          ))}
+        </div>
+      )}
     </section>
   )
 }
 
-function MemoryCard({ memory }: { memory: Memory }) {
-  const Icon = memory.icon
+function MemoryCard({ memory }: { memory: MemoryRow }) {
+  const pills = memory.tags ?? []
   return (
     <article className="group rounded-2xl border border-zinc-100/60 bg-white p-6 shadow-sm transition-all duration-500 hover:shadow-[0_10px_40px_rgba(0,0,0,0.03)] hover:-translate-y-0.5 hover:border-zinc-200/60">
       <div className="mb-5 flex items-center justify-between">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-50 text-zinc-400 transition-all duration-300 group-hover:bg-purple-50 group-hover:text-purple-500">
-          <Icon className="h-5 w-5" />
+          <CategoryIcon category={memory.category} className="h-5 w-5" />
         </div>
-        <span className="text-xs text-zinc-400">{memory.time}</span>
+        <span className="text-xs text-zinc-400">{timeAgo(memory.created_at)}</span>
       </div>
 
       <h4 className="mb-2 text-[15px] font-semibold tracking-tight text-zinc-900">
@@ -324,17 +358,58 @@ function MemoryCard({ memory }: { memory: Memory }) {
         {memory.body}
       </p>
 
-      <div className="flex flex-wrap gap-2">
-        {memory.pills.map((p) => (
-          <span
-            key={p}
-            className="text-xs bg-purple-50 text-purple-600 font-medium px-3 py-1 rounded-full"
-          >
-            {p}
-          </span>
-        ))}
-      </div>
+      {pills.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {pills.map((p) => (
+            <span
+              key={p}
+              className="text-xs bg-purple-50 text-purple-600 font-medium px-3 py-1 rounded-full"
+            >
+              {p}
+            </span>
+          ))}
+        </div>
+      )}
     </article>
+  )
+}
+
+/* Premium loading skeletons — quiet pulse, never blocks render */
+function SkeletonGrid() {
+  return (
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div
+          key={i}
+          className="rounded-2xl border border-zinc-100/60 bg-white p-6 shadow-sm"
+        >
+          <div className="mb-5 flex items-center justify-between">
+            <div className="h-10 w-10 rounded-full bg-zinc-100 animate-pulse" />
+            <div className="h-3 w-12 rounded-full bg-zinc-100 animate-pulse" />
+          </div>
+          <div className="mb-2 h-4 w-3/4 rounded-full bg-zinc-100 animate-pulse" />
+          <div className="mb-5 h-3 w-full rounded-full bg-zinc-100 animate-pulse" />
+          <div className="h-3 w-2/3 rounded-full bg-zinc-100 animate-pulse" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* The empty sanctuary — calm, inviting, never an error */
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200/70 bg-white/40 px-6 py-20 text-center">
+      <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 text-purple-300">
+        <Feather className="h-6 w-6" />
+      </div>
+      <p className="font-display text-xl tracking-tight text-zinc-700">
+        Your digital sanctuary is clear.
+      </p>
+      <p className="mt-2 text-sm text-zinc-400">
+        Begin typing below to capture a thought.
+      </p>
+    </div>
   )
 }
 
@@ -361,22 +436,97 @@ function Footer() {
 }
 
 /* ──────────────────────────────────────────────────────────────
-   Page Shell
+   Page Shell — owns the live data state
    ────────────────────────────────────────────────────────────── */
 
 export default function Home() {
+  const [memories, setMemories] = useState<MemoryRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('memories')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (!active) return
+
+      // Table missing / RLS blocked / empty — all resolve to a calm empty state.
+      if (error) {
+        console.warn('Aether · could not load memories:', error.message)
+        setMemories([])
+      } else {
+        setMemories((data as MemoryRow[]) ?? [])
+      }
+      setLoading(false)
+    }
+    load()
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const addMemory = useCallback(async (text: string): Promise<boolean> => {
+    const trimmed = text.trim()
+    if (!trimmed) return false
+
+    const title =
+      trimmed.length > 64 ? trimmed.slice(0, 64).trimEnd() + '…' : trimmed
+
+    const { data, error } = await supabase
+      .from('memories')
+      .insert([
+        { title, body: trimmed, category: 'idea', tags: ['capture'] },
+      ])
+      .select()
+      .single()
+
+    if (error) {
+      toast.error('Could not capture that thought.', {
+        description: 'The sanctuary is not reachable yet.',
+      })
+      console.warn('Aether · insert failed:', error.message)
+      return false
+    }
+
+    if (data) {
+      setMemories((prev) => [data as MemoryRow, ...prev])
+      toast.success('Captured.', {
+        description: 'A quiet new memory has been kept.',
+      })
+      return true
+    }
+    return false
+  }, [])
+
   return (
     <div className="relative flex min-h-screen flex-col">
       <TheGlow />
       <TopRail />
 
       <main className="flex flex-1 flex-col gap-24 px-0 py-20 sm:py-28">
-        <FocusCapsule />
+        <FocusCapsule onCapture={addMemory} />
         <RecapBlock />
-        <MemoryFeed />
+        <MemoryFeed memories={memories} loading={loading} />
       </main>
 
       <Footer />
+
+      <SonnerToaster
+        position="bottom-center"
+        toastOptions={{
+          style: {
+            borderRadius: '9999px',
+            border: '1px solid rgb(244 244 245)',
+            background: 'rgb(255 255 255)',
+            color: 'rgb(39 39 42)',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.06)',
+            fontSize: '13px',
+          },
+        }}
+      />
     </div>
   )
 }
