@@ -31,8 +31,11 @@ type MemoryRow = {
   id: string
   title: string
   body: string
+  summary: string | null
   category: string | null
   tags: string[] | null
+  processing: boolean | null
+  user_id: string | null
   created_at: string
 }
 
@@ -149,18 +152,17 @@ function TopRail() {
 function FocusCapsule({
   onCapture,
 }: {
-  onCapture: (text: string) => Promise<boolean>
+  onCapture: (text: string) => void
 }) {
   const [value, setValue] = useState('')
-  const [submitting, setSubmitting] = useState(false)
 
-  const handleSubmit = async () => {
+  // ⚡ Snappy frontend optimism — clear the bar instantly and hand off to the
+  // parent, which pushes an optimistic card + fires the POST without blocking.
+  const handleSubmit = () => {
     const text = value.trim()
-    if (!text || submitting) return
-    setSubmitting(true)
-    const ok = await onCapture(text)
-    setSubmitting(false)
-    if (ok) setValue('')
+    if (!text) return
+    setValue('')
+    onCapture(text)
   }
 
   return (
@@ -207,14 +209,10 @@ function FocusCapsule({
             <button
               aria-label="Capture thought"
               onClick={handleSubmit}
-              disabled={!value.trim() || submitting}
+              disabled={!value.trim()}
               className="ml-1 flex h-11 w-11 items-center justify-center rounded-full bg-zinc-900 text-white transition-all duration-300 hover:bg-purple-600 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:scale-100"
             >
-              {submitting ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <ArrowUp className="h-5 w-5" />
-              )}
+              <ArrowUp className="h-5 w-5" />
             </button>
           </div>
         </div>
@@ -342,13 +340,20 @@ function MemoryFeed({
 
 function MemoryCard({ memory }: { memory: MemoryRow }) {
   const pills = memory.tags ?? []
+  const processing = memory.processing === true
   return (
     <article className="group rounded-2xl border border-zinc-100/60 bg-white p-6 shadow-sm transition-all duration-500 hover:shadow-[0_10px_40px_rgba(0,0,0,0.03)] hover:-translate-y-0.5 hover:border-zinc-200/60">
       <div className="mb-5 flex items-center justify-between">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-50 text-zinc-400 transition-all duration-300 group-hover:bg-purple-50 group-hover:text-purple-500">
-          <CategoryIcon category={memory.category} className="h-5 w-5" />
+          {processing ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <CategoryIcon category={memory.category} className="h-5 w-5" />
+          )}
         </div>
-        <span className="text-xs text-zinc-400">{timeAgo(memory.created_at)}</span>
+        <span className="text-xs text-zinc-400">
+          {processing ? 'Refining…' : timeAgo(memory.created_at)}
+        </span>
       </div>
 
       <h4 className="mb-2 text-[15px] font-semibold tracking-tight text-zinc-900">
@@ -357,6 +362,15 @@ function MemoryCard({ memory }: { memory: MemoryRow }) {
       <p className="mb-5 text-sm leading-relaxed text-zinc-500">
         {memory.body}
       </p>
+
+      {!processing && memory.summary && (
+        <div className="mb-4 flex gap-2 rounded-xl bg-purple-50/50 px-3 py-2.5">
+          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-purple-400" />
+          <p className="text-xs italic leading-relaxed text-purple-700/70">
+            {memory.summary}
+          </p>
+        </div>
+      )}
 
       {pills.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -468,38 +482,89 @@ export default function Home() {
     }
   }, [])
 
-  const addMemory = useCallback(async (text: string): Promise<boolean> => {
-    const trimmed = text.trim()
-    if (!trimmed) return false
-
-    const title =
-      trimmed.length > 64 ? trimmed.slice(0, 64).trimEnd() + '…' : trimmed
-
+  // Silent re-fetch used to pick up background-enriched rows.
+  const refetch = useCallback(async () => {
     const { data, error } = await supabase
       .from('memories')
-      .insert([
-        { title, body: trimmed, category: 'idea', tags: ['capture'] },
-      ])
-      .select()
-      .single()
+      .select('*')
+      .order('created_at', { ascending: false })
 
-    if (error) {
-      toast.error('Could not capture that thought.', {
-        description: 'The sanctuary is not reachable yet.',
-      })
-      console.warn('Aether · insert failed:', error.message)
-      return false
-    }
-
-    if (data) {
-      setMemories((prev) => [data as MemoryRow, ...prev])
-      toast.success('Captured.', {
-        description: 'A quiet new memory has been kept.',
-      })
-      return true
-    }
-    return false
+    if (error || !data) return
+    const rows = data as MemoryRow[]
+    setMemories((prev) => {
+      // Preserve any still-pending optimistic entries (temp- ids);
+      // confirmed rows are refreshed from the DB (same id → smooth update).
+      const pending = prev.filter((m) => m.id.startsWith('temp-'))
+      return [...pending, ...rows]
+    })
   }, [])
+
+  // ⚡ Snappy ingestion — push an optimistic card instantly, then fire the
+  // POST to /api/capture. The card shows a spinner until the background
+  // Gemini enrichment writes back (picked up by delayed refetches).
+  const addMemory = useCallback(
+    (text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed) return
+
+      const tempId = `temp-${crypto.randomUUID()}`
+      const optimistic: MemoryRow = {
+        id: tempId,
+        title: 'Capturing thought…',
+        body: trimmed,
+        summary: null,
+        category: 'idea',
+        tags: ['capture'],
+        processing: true,
+        user_id: null,
+        created_at: new Date().toISOString(),
+      }
+      setMemories((prev) => [optimistic, ...prev])
+
+      void (async () => {
+        try {
+          const res = await fetch('/api/capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: trimmed, user_id: null }),
+          })
+          const json = (await res.json()) as {
+            success?: boolean
+            id?: string
+            error?: string
+          }
+          if (!res.ok || !json.success) {
+            throw new Error(json.error || 'capture_failed')
+          }
+
+          // Swap the temp id for the real DB id (still processing). The card
+          // is in its loading state both before and after, so this is invisible.
+          const realId = json.id as string
+          setMemories((prev) =>
+            prev.map((m) => (m.id === tempId ? { ...m, id: realId } : m))
+          )
+
+          toast.success('Captured.', {
+            description: 'Aether is refining it in the background.',
+          })
+
+          // Pick up the enriched row once the background Gemini call resolves.
+          setTimeout(() => void refetch(), 3500)
+          setTimeout(() => void refetch(), 8000)
+        } catch (err) {
+          setMemories((prev) => prev.filter((m) => m.id !== tempId))
+          toast.error('Could not capture that thought.', {
+            description: 'The sanctuary is not reachable yet.',
+          })
+          console.warn(
+            'Aether · capture failed:',
+            err instanceof Error ? err.message : err
+          )
+        }
+      })()
+    },
+    [refetch]
+  )
 
   return (
     <div className="relative flex min-h-screen flex-col">

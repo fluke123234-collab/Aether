@@ -70,3 +70,4 @@ db/*.db-wal
 # verification screenshots
 preview-*.png
 phase2-*.png
+phase3-*.png
