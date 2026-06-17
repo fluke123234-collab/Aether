@@ -51,7 +51,7 @@ export function Collections({
   return (
     <section className="mx-auto w-full max-w-6xl px-5">
       <div className="mb-5 flex items-center gap-2.5">
-        <Folder className="h-4 w-4 text-zinc-400" />
+        <Folder className="h-[18px] w-[18px] text-zinc-400" />
         <h3 className="text-sm font-medium text-zinc-600">Collections</h3>
         <span className="text-xs text-zinc-400">
           {folders.length} {folders.length === 1 ? 'folder' : 'folders'}
@@ -101,14 +101,14 @@ function FolderPill({
   return (
     <button
       onClick={onClick}
-      className={`group inline-flex items-center gap-2.5 rounded-full border px-4 py-2 text-sm font-medium transition-all duration-300 ${
+      className={`group inline-flex items-center gap-2.5 rounded-full border px-4 py-2 text-sm font-medium transition-all duration-300 active:scale-95 ${
         active
           ? 'border-purple-200 bg-purple-50 text-purple-700 shadow-[0_4px_20px_rgba(139,92,246,0.08)]'
           : 'border-zinc-100 bg-white text-zinc-600 hover:border-zinc-200 hover:bg-zinc-50 hover:-translate-y-0.5'
       }`}
     >
       <Icon
-        className={`h-4 w-4 transition-colors duration-300 ${
+        className={`h-[18px] w-[18px] transition-colors duration-300 ${
           active
             ? 'text-purple-500'
             : 'text-zinc-400 group-hover:text-purple-500'

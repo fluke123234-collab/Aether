@@ -127,22 +127,27 @@
   }
 }
 
-/* ── The Signature Glow: a slow, organic breathing pulse ── */
-@keyframes aether-breathe {
+/* ── The Aether Breathing Glow: a very slow, subtle pulsate (20s) ── */
+@keyframes aether-pulse-slow {
   0%,
   100% {
-    opacity: 0.4;
+    opacity: 0.55;
     transform: scale(1) translate3d(0, 0, 0);
   }
   50% {
     opacity: 1;
-    transform: scale(1.1) translate3d(0, 0, 0);
+    transform: scale(1.06) translate3d(0, 0, 0);
   }
 }
 
-.animate-breathe {
-  animation: aether-breathe 9s ease-in-out infinite;
+.animate-pulse-slow {
+  animation: aether-pulse-slow 20s ease-in-out infinite;
   will-change: opacity, transform;
+}
+
+/* Legacy alias kept for any older references */
+.animate-breathe {
+  animation: aether-pulse-slow 20s ease-in-out infinite;
 }
 
 /* ── Subtle entrance for premium content ── */
