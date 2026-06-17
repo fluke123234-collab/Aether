@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { toast, Toaster as SonnerToaster } from 'sonner'
 import {
@@ -21,27 +21,20 @@ import {
   Loader2,
   Heart,
   LogOut,
+  X,
+  FolderX,
   type LucideIcon,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore, ensureAuthenticated } from '@/lib/auth-store'
 import { AuthModal } from '@/components/aether/AuthModal'
+import { Collections } from '@/components/aether/Collections'
+import type { MemoryRow } from '@/lib/types'
+import { logger } from '@/lib/logger'
 
 /* ──────────────────────────────────────────────────────────────
    Types & helpers — live data layer (no more static mocks)
    ────────────────────────────────────────────────────────────── */
-
-type MemoryRow = {
-  id: string
-  title: string
-  body: string
-  summary: string | null
-  category: string | null
-  tags: string[] | null
-  processing: boolean | null
-  user_id: string | null
-  created_at: string
-}
 
 function timeAgo(iso: string): string {
   try {
@@ -190,7 +183,7 @@ function FocusCapsule({
 }) {
   const [value, setValue] = useState('')
 
-  // ⚡ Snappy frontend optimism — but the guard intercepts first: a signed-out
+  // Snappy frontend optimism — but the guard intercepts first: a signed-out
   // user never reaches the capture flow; the auth modal pops instantly instead.
   const handleSubmit = () => {
     const text = value.trim()
@@ -382,21 +375,43 @@ function MemoryFeed({
   loading,
   favorites,
   onToggleFavorite,
+  activeFolder,
+  onClearFolder,
 }: {
   memories: MemoryRow[]
   loading: boolean
   favorites: Set<string>
   onToggleFavorite: (id: string) => void
+  activeFolder: string | null
+  onClearFolder: () => void
 }) {
   return (
     <section className="mx-auto w-full max-w-6xl px-5">
       <div className="mb-8 flex items-end justify-between">
         <div>
           <h3 className="font-display text-2xl tracking-tight text-zinc-900">
-            Recent memories
+            {activeFolder ? (
+              <span className="inline-flex items-center gap-2.5">
+                Recent memories
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-3 py-0.5 text-xs font-medium capitalize text-purple-600">
+                  {activeFolder}
+                  <button
+                    aria-label="Clear filter"
+                    onClick={onClearFolder}
+                    className="transition-transform duration-200 hover:scale-110"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              </span>
+            ) : (
+              'Recent memories'
+            )}
           </h3>
           <p className="mt-1 text-sm text-zinc-500">
-            A gentle stream of what you’ve kept.
+            {activeFolder
+              ? `Filtered to the “${activeFolder}” collection.`
+              : 'A gentle stream of what you’ve kept.'}
           </p>
         </div>
         <button
@@ -417,7 +432,11 @@ function MemoryFeed({
       {loading ? (
         <SkeletonGrid />
       ) : memories.length === 0 ? (
-        <EmptyState />
+        activeFolder ? (
+          <FilteredEmptyState tag={activeFolder} onClear={onClearFolder} />
+        ) : (
+          <EmptyState />
+        )
       ) : (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {memories.map((m) => (
@@ -545,6 +564,35 @@ function EmptyState() {
   )
 }
 
+/* Filtered empty state — shown when a folder yields no matches */
+function FilteredEmptyState({
+  tag,
+  onClear,
+}: {
+  tag: string
+  onClear: () => void
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200/70 bg-white/40 px-6 py-20 text-center">
+      <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-50 text-zinc-300">
+        <FolderX className="h-6 w-6" />
+      </div>
+      <p className="font-display text-xl tracking-tight text-zinc-700">
+        Nothing here yet.
+      </p>
+      <p className="mt-2 text-sm text-zinc-400">
+        No memories in the <span className="capitalize font-medium text-zinc-500">{tag}</span> collection.
+      </p>
+      <button
+        onClick={onClear}
+        className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-all duration-300 hover:bg-purple-600 hover:scale-105 active:scale-95"
+      >
+        Show all memories
+      </button>
+    </div>
+  )
+}
+
 /* ──────────────────────────────────────────────────────────────
    Footer — sticky to the floor, whisper-quiet
    ────────────────────────────────────────────────────────────── */
@@ -575,6 +623,7 @@ export default function Home() {
   const [memories, setMemories] = useState<MemoryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
+  const [activeFolder, setActiveFolder] = useState<string | null>(null)
 
   useEffect(() => {
     // Rehydrate the persisted auth session (store uses skipHydration so the
@@ -592,7 +641,7 @@ export default function Home() {
 
       // Table missing / RLS blocked / empty — all resolve to a calm empty state.
       if (error) {
-        console.warn('Aether · could not load memories:', error.message)
+        logger.warn('Aether · could not load memories:', error.message)
         setMemories([])
       } else {
         setMemories((data as MemoryRow[]) ?? [])
@@ -622,7 +671,7 @@ export default function Home() {
     })
   }, [])
 
-  // ⚡ Snappy ingestion — push an optimistic card instantly, then fire the
+  // Snappy ingestion — push an optimistic card instantly, then fire the
   // POST to /api/capture. The card shows a spinner until the background
   // Gemini enrichment writes back (picked up by delayed refetches).
   const addMemory = useCallback(
@@ -679,7 +728,7 @@ export default function Home() {
           toast.error('Could not capture that thought.', {
             description: 'The sanctuary is not reachable yet.',
           })
-          console.warn(
+          logger.warn(
             'Aether · capture failed:',
             err instanceof Error ? err.message : err
           )
@@ -699,19 +748,35 @@ export default function Home() {
     })
   }, [])
 
+  // Phase 5 — filter memories by the active folder tag (derived live from DB).
+  const visibleMemories = useMemo(
+    () =>
+      activeFolder === null
+        ? memories
+        : memories.filter((m) => (m.tags ?? []).includes(activeFolder)),
+    [memories, activeFolder]
+  )
+
   return (
     <div className="relative flex min-h-screen flex-col">
       <TheGlow />
       <TopRail />
 
-      <main className="flex flex-1 flex-col gap-24 px-0 py-20 sm:py-28">
+      <main className="flex flex-1 flex-col gap-20 px-0 py-20 sm:py-28">
         <FocusCapsule onCapture={addMemory} />
         <RecapBlock />
-        <MemoryFeed
+        <Collections
           memories={memories}
+          activeFolder={activeFolder}
+          onSelectFolder={setActiveFolder}
+        />
+        <MemoryFeed
+          memories={visibleMemories}
           loading={loading}
           favorites={favorites}
           onToggleFavorite={toggleFavorite}
+          activeFolder={activeFolder}
+          onClearFolder={() => setActiveFolder(null)}
         />
       </main>
 

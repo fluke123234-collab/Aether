@@ -11,6 +11,8 @@
  *   instead of hanging in "processing" forever.
  */
 
+import { logger } from './logger'
+
 export type MemoryAnalysis = {
   title: string
   summary: string
@@ -81,7 +83,7 @@ export async function analyzeMemoryText(content: string): Promise<MemoryAnalysis
 
   if (!GEMINI_API_KEY) {
     // No key configured — resolve deterministically so the pipeline still flows.
-    console.warn('Aether · GEMINI_API_KEY not set — using heuristic metadata.')
+    logger.warn('Aether · GEMINI_API_KEY not set — using heuristic metadata.')
     return fallbackAnalysis(text)
   }
 
@@ -144,7 +146,7 @@ export async function analyzeMemoryText(content: string): Promise<MemoryAnalysis
     return { title, summary, tags: tags.length ? tags : ['capture'] }
   } catch (err) {
     // Rate limit, network, syntax — never hang the row.
-    console.warn(
+    logger.warn(
       'Aether · analyzeMemoryText fell back:',
       err instanceof Error ? err.message : err
     )

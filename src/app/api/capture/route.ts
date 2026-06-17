@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { after } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { analyzeMemoryText } from '@/lib/gemini'
+import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error || !data) {
-    console.warn('Aether · capture insert failed:', error?.message)
+    logger.warn('Aether · capture insert failed:', error?.message)
     return NextResponse.json(
       { success: false, error: error?.message ?? 'insert_failed' },
       { status: 500 }
@@ -81,17 +82,17 @@ export async function POST(req: NextRequest) {
         .eq('id', memoryId)
 
       if (updateError) {
-        console.warn('Aether · background update failed:', updateError.message)
+        logger.warn('Aether · background update failed:', updateError.message)
         return
       }
 
       const elapsed = Date.now() - insertedAt
-      console.info(
+      logger.info(
         `Aether · memory ${memoryId} enriched in ${elapsed}ms`
       )
     } catch (err) {
       // Never leave the row stuck "processing" — resolve with a fallback update.
-      console.warn(
+      logger.warn(
         'Aether · enrichment threw:',
         err instanceof Error ? err.message : err
       )
