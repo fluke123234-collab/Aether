@@ -459,7 +459,9 @@ function MemoryCard({
   favorited: boolean
   onToggleFavorite: (id: string) => void
 }) {
-  const pills = memory.tags ?? []
+  // Prefer AI tags from the metadata JSONB; fall back to the top-level tags column.
+  const pills =
+    (memory.metadata?.tags?.length ? memory.metadata.tags : memory.tags) ?? []
   const processing = memory.processing === true
   return (
     <article className="group rounded-2xl border border-zinc-100/60 bg-white p-6 shadow-[0_4px_20px_0_rgba(0,0,0,0.015)] transition-all duration-500 hover:shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] hover:-translate-y-0.5 hover:border-zinc-200/60">
@@ -686,6 +688,7 @@ export default function Home() {
         tags: ['capture'],
         processing: true,
         user_id: null,
+        metadata: null,
         created_at: new Date().toISOString(),
       }
       setMemories((prev) => [optimistic, ...prev])
@@ -746,11 +749,16 @@ export default function Home() {
   }, [])
 
   // Phase 5 — filter memories by the active folder tag (derived live from DB).
+  // Reads tags from the metadata JSONB first, falling back to the top-level column.
   const visibleMemories = useMemo(
     () =>
       activeFolder === null
         ? memories
-        : memories.filter((m) => (m.tags ?? []).includes(activeFolder)),
+        : memories.filter((m) => {
+            const tags =
+              m.metadata?.tags?.length ? m.metadata.tags : (m.tags ?? [])
+            return tags.includes(activeFolder)
+          }),
     [memories, activeFolder]
   )
 

@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
         tags: ['capture'],
         processing: true,
         user_id: userId,
+        metadata: null,
       },
     ])
     .select()
@@ -68,34 +69,71 @@ export async function POST(req: NextRequest) {
 
   // ── Step 3: background enrichment, AFTER the response is sent ──
   after(async () => {
-    try {
-      const analysis = await analyzeMemoryText(content)
+    // 1. Await the consolidated Gemini analysis payload (a JSON string).
+    const aiResponseString = await analyzeMemoryText(content)
 
-      const { error: updateError } = await supabase
+    // AUDIT: trace the raw payload before parsing so failures are visible.
+    logger.info('Gemini Raw Output:', aiResponseString)
+
+    try {
+      // 2. Safely parse the response string into a clean object.
+      const aiData = JSON.parse(aiResponseString) as {
+        title?: unknown
+        summary?: unknown
+        tags?: unknown
+      }
+
+      // Normalise — never let undefined fields overwrite the row.
+      const title =
+        typeof aiData.title === 'string' && aiData.title.trim()
+          ? aiData.title.trim().slice(0, 80)
+          : 'Untitled Thought'
+      const summary =
+        typeof aiData.summary === 'string' ? aiData.summary.trim().slice(0, 280) : ''
+      const tags: string[] = Array.isArray(aiData.tags)
+        ? aiData.tags
+            .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+            .map((t) => t.trim())
+            .slice(0, 3)
+        : []
+
+      // 3. Update the exact database row matching the memory ID.
+      //    Map the AI payload into the `metadata` JSONB column (the canonical
+      //    store for AI-derived fields) AND mirror onto the top-level columns
+      //    so the existing feed/cards keep rendering without a schema migration.
+      const { error } = await supabase
         .from('memories')
         .update({
-          title: analysis.title,
-          summary: analysis.summary,
-          tags: analysis.tags,
+          metadata: { title, summary, tags },
+          title,
+          summary,
+          tags,
           processing: false,
         })
         .eq('id', memoryId)
 
-      if (updateError) {
-        logger.warn('Aether · background update failed:', updateError.message)
+      if (error) {
+        logger.error('SUPABASE UPDATE ERROR:', error.message)
+        // Never leave the row stuck "processing".
+        await supabase
+          .from('memories')
+          .update({ processing: false })
+          .eq('id', memoryId)
+          .then(() => undefined, () => undefined)
         return
       }
 
       const elapsed = Date.now() - insertedAt
       logger.info(
-        `Aether · memory ${memoryId} enriched in ${elapsed}ms`
+        `SUCCESS: Memory metadata successfully synced to database. (${memoryId} in ${elapsed}ms)`
       )
-    } catch (err) {
-      // Never leave the row stuck "processing" — resolve with a fallback update.
-      logger.warn(
-        'Aether · enrichment threw:',
-        err instanceof Error ? err.message : err
+    } catch (parseError) {
+      logger.error(
+        'CRITICAL CRASH: Failed to parse Gemini response string. Raw payload was:',
+        aiResponseString,
+        parseError instanceof Error ? parseError.message : parseError
       )
+      // Resolve the row so it never hangs in "processing".
       await supabase
         .from('memories')
         .update({ processing: false })

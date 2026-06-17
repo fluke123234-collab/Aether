@@ -5,6 +5,12 @@
  * source of truth without circular imports.
  */
 
+export type MemoryMetadata = {
+  title?: string
+  summary?: string
+  tags?: string[]
+} | null
+
 export type MemoryRow = {
   id: string
   title: string
@@ -14,5 +20,6 @@ export type MemoryRow = {
   tags: string[] | null
   processing: boolean | null
   user_id: string | null
+  metadata: MemoryMetadata
   created_at: string
 }

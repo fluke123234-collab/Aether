@@ -75,16 +75,21 @@ function fallbackAnalysis(content: string): MemoryAnalysis {
   return { title, summary, tags: Array.from(tags) }
 }
 
-/* ── The single consolidated Gemini call ── */
+/* ── The single consolidated Gemini call ──
+ * Returns a JSON STRING (not a parsed object) so the caller can
+ * log the raw payload and parse it inside a try/catch — this gives
+ * full traceability when a Gemini response is malformed or rate-limited.
+ * The internal fallback guarantees the returned string is always valid JSON.
+ */
 
-export async function analyzeMemoryText(content: string): Promise<MemoryAnalysis> {
+export async function analyzeMemoryText(content: string): Promise<string> {
   const text = (content ?? '').trim()
-  if (!text) return fallbackAnalysis(text)
+  if (!text) return JSON.stringify(fallbackAnalysis(text))
 
   if (!GEMINI_API_KEY) {
     // No key configured — resolve deterministically so the pipeline still flows.
     logger.warn('Aether · GEMINI_API_KEY not set — using heuristic metadata.')
-    return fallbackAnalysis(text)
+    return JSON.stringify(fallbackAnalysis(text))
   }
 
   try {
@@ -143,13 +148,18 @@ export async function analyzeMemoryText(content: string): Promise<MemoryAnalysis
           .slice(0, 3)
       : ['capture']
 
-    return { title, summary, tags: tags.length ? tags : ['capture'] }
+    const result: MemoryAnalysis = {
+      title,
+      summary,
+      tags: tags.length ? tags : ['capture'],
+    }
+    return JSON.stringify(result)
   } catch (err) {
     // Rate limit, network, syntax — never hang the row.
     logger.warn(
       'Aether · analyzeMemoryText fell back:',
       err instanceof Error ? err.message : err
     )
-    return fallbackAnalysis(text)
+    return JSON.stringify(fallbackAnalysis(text))
   }
 }

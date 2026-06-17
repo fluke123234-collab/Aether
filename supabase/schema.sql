@@ -14,6 +14,7 @@ create table if not exists public.memories (
   summary     text,
   category    text        not null default 'idea',
   tags        text[]      not null default '{}',
+  metadata    jsonb,
   processing  boolean     not null default false,
   user_id     text,
   created_at  timestamptz not null default now()
@@ -28,6 +29,7 @@ alter table public.memories add column if not exists body        text;
 alter table public.memories add column if not exists summary     text;
 alter table public.memories add column if not exists category    text         not null default 'idea';
 alter table public.memories add column if not exists tags        text[]       not null default '{}';
+alter table public.memories add column if not exists metadata    jsonb;
 alter table public.memories add column if not exists processing  boolean      not null default false;
 alter table public.memories add column if not exists user_id     text;
 alter table public.memories add column if not exists created_at  timestamptz  not null default now();
@@ -53,8 +55,12 @@ create policy "memories_delete_all" on public.memories
   for delete using (true);
 
 -- 4. Seed — the original sanctuary memories (only if empty) ----
-insert into public.memories (title, body, summary, category, tags, processing, created_at)
-select v.title, v.body, v.summary, v.category, v.tags, false, v.created_at
+--    The `metadata` JSONB mirrors {title, summary, tags} so the
+--    Collections engine (which reads metadata.tags) works immediately.
+insert into public.memories (title, body, summary, category, tags, metadata, processing, created_at)
+select v.title, v.body, v.summary, v.category, v.tags,
+       jsonb_build_object('title', v.title, 'summary', v.summary, 'tags', v.tags),
+       false, v.created_at
 from (values
   ('Ambient sound as a service',
    'An app that composes adaptive soundscapes from the room''s live acoustics — silence becomes an instrument.',

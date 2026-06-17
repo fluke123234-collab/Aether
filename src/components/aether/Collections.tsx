@@ -28,10 +28,18 @@ export function Collections({
   onSelectFolder,
 }: CollectionsProps) {
   // Build unique tag folders dynamically with live counts — no hardcoding.
+  // Tags are dug out of the `metadata` JSONB object (the canonical AI store),
+  // with a safe fallback to the top-level `tags` column for legacy/seeded rows.
   const folders = useMemo<FolderEntry[]>(() => {
     const counts = new Map<string, number>()
-    for (const m of memories) {
-      const tags = m.tags ?? []
+    for (const memory of memories) {
+      // Safely dig into the jsonb metadata object.
+      const metaTags = memory.metadata?.tags
+      const tags = Array.isArray(metaTags) && metaTags.length
+        ? metaTags
+        : Array.isArray(memory.tags)
+          ? memory.tags
+          : []
       for (const t of tags) {
         if (!t) continue
         counts.set(t, (counts.get(t) ?? 0) + 1)
