@@ -18,6 +18,7 @@ export function AuthModal() {
   const open = useAuthStore((s) => s.authModalOpen)
   const closeModal = useAuthStore((s) => s.closeModal)
   const signIn = useAuthStore((s) => s.signIn)
+  const signUp = useAuthStore((s) => s.signUp)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -47,7 +48,7 @@ export function AuthModal() {
   // document.body always exists by the time we portal into it.
   if (!open) return null
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!email.trim()) {
       toast.error('Please enter your email.')
@@ -55,16 +56,31 @@ export function AuthModal() {
       return
     }
     setBusy(true)
-    // Mock session — Phase 4 wires the guard mechanics; real auth is a later phase.
-    setTimeout(() => {
-      signIn(email.trim())
-      setBusy(false)
+    try {
+      const { error, session } =
+        mode === 'signin'
+          ? await signIn(email.trim(), password)
+          : await signUp(email.trim(), password)
+
+      if (error) {
+        toast.error(error)
+        return
+      }
+      if (!session) {
+        toast.success('Check your email.', {
+          description: 'Confirm your address to complete sign-up.',
+        })
+        return
+      }
+      closeModal()
       setEmail('')
       setPassword('')
       toast.success('Welcome to Aether.', {
         description: 'The sanctuary is yours now.',
       })
-    }, 550)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return createPortal(
