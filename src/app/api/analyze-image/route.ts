@@ -9,7 +9,8 @@ const VLM_PROMPT = `Analyze this image with extreme detail and accuracy. This is
 
 1. EXTRACT ALL TEXT: Every word, number, price, label, spec, title, heading visible in the image. Transcribe verbatim, preserving exact numbers and prices.
 2. DESCRIBE CONTENT: What is shown? Products, parts, documents, receipts, screenshots, diagrams? List each item with its details (name, price, specs, quantities).
-3. SUMMARIZE: One sentence summary of what this image contains.
+3. KEYWORDS: List 5-10 keywords that describe this image (for searchability).
+4. SUMMARIZE: One sentence summary of what this image contains.
 
 Output plain text, no JSON. Be exhaustive — every detail matters. If there are prices, list them. If there are part names, list them. If there are specs, list them.`
 
@@ -20,11 +21,16 @@ export async function POST(req: NextRequest) {
   const image = typeof body.image === 'string' ? body.image : ''
   if (!image || !image.startsWith('data:image/')) return NextResponse.json({ success: false, description: '', error: 'no_image' }, { status: 400 })
 
-  // The Z.ai direct API doesn't support image_url content type.
-  // Must use the z-ai-web-dev-sdk's createVision method.
   try {
     const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
+    // Pass config explicitly so it works on Vercel (no /etc/.z-ai-config).
+    const zai = await ZAI.create({
+      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
+      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
+      token: process.env.ZAI_TOKEN || '',
+      chatId: process.env.ZAI_CHAT_ID || '',
+      userId: process.env.ZAI_USER_ID || '',
+    })
     const res = await zai.chat.completions.createVision({
       messages: [
         {

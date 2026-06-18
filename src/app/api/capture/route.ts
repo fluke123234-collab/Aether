@@ -150,10 +150,15 @@ export async function POST(req: NextRequest) {
       // Auto-classify the memory type (life area) — instant, no API call.
       const memoryType = classifyMemoryType(content || finalContent)
 
+      // Extract hidden search keywords from ALL content (text + image desc).
+      const allContent = [content, imageDescription].filter(Boolean).join(' ')
+      const searchKeywords = extractKeywords(allContent, tags)
+
       // 3. Update the row with enriched data — preserve image + audio data.
       const metadataObj: Record<string, unknown> = {
         title, summary, tags, type: memoryType,
         imageDescription: imageDescription || undefined,
+        searchKeywords, // Hidden keywords for AI search — invisible to the user
       }
       // Preserve the original image data so the card can display it.
       if (hasImage && typeof body.image === 'string') {
@@ -208,15 +213,21 @@ async function analyzeImage(imageDataUrl: string): Promise<string> {
 
 1. EXTRACT ALL TEXT: Every word, number, price, label, spec, title, heading visible in the image. Transcribe verbatim, preserving exact numbers and prices.
 2. DESCRIBE CONTENT: What is shown? Products, parts, documents, receipts, screenshots, diagrams? List each item with its details (name, price, specs, quantities).
-3. SUMMARIZE: One sentence summary of what this image contains.
+3. KEYWORDS: List 5-10 keywords that describe this image (for searchability).
+4. SUMMARIZE: One sentence summary of what this image contains.
 
 Output plain text, no JSON. Be exhaustive — every detail matters. If there are prices, list them. If there are part names, list them. If there are specs, list them.`
 
-  // The Z.ai direct API doesn't support image_url content type — only the
-  // z-ai-web-dev-sdk's createVision method works for image analysis.
   try {
     const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
+    // Pass config explicitly so it works on Vercel (no /etc/.z-ai-config).
+    const zai = await ZAI.create({
+      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
+      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
+      token: process.env.ZAI_TOKEN || '',
+      chatId: process.env.ZAI_CHAT_ID || '',
+      userId: process.env.ZAI_USER_ID || '',
+    })
     const res = await zai.chat.completions.createVision({
       messages: [
         {
@@ -247,4 +258,29 @@ function classifyMemoryType(text: string): string {
   if (/\b(todo|to-do|task|need to|must|should|have to|don'?t forget|remember to|finish|complete|ship|fix|call|send|buy|schedule|book)\b/.test(t)) return 'task'
   if (t.includes('image capture') || t.startsWith('[image content:')) return 'image'
   return 'personal'
+}
+
+/* ── Extract hidden search keywords from all content ── */
+function extractKeywords(content: string, existingTags: string[]): string[] {
+  const text = content.toLowerCase()
+  const keywords = new Set<string>(existingTags.map((t) => t.toLowerCase()))
+
+  // Extract all words 4+ chars, filter stopwords.
+  const stopwords = new Set(['the', 'this', 'that', 'with', 'have', 'will', 'been', 'from', 'they', 'were', 'your', 'what', 'when', 'which', 'their', 'would', 'about', 'there', 'could', 'other', 'more', 'some', 'than', 'very', 'into', 'only', 'also', 'just', 'like', 'make', 'well', 'much', 'such', 'those', 'these', 'know', 'think', 'want', 'need', 'image', 'content', 'capture', 'note', 'voice'])
+  const words = text.match(/\b[a-z]{4,}\b/g) || []
+  const wordCounts = new Map<string, number>()
+  for (const w of words) {
+    if (stopwords.has(w)) continue
+    wordCounts.set(w, (wordCounts.get(w) || 0) + 1)
+  }
+
+  // Sort by frequency, take top 10.
+  const sorted = Array.from(wordCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([w]) => w)
+  for (const w of sorted) keywords.add(w)
+
+  // Also extract any numbers/prices found in the text.
+  const prices = text.match(/\$\d[\d,]*(?:\.\d+)?|\d[\d,]*\s*(?:dollars?|usd|k\b)/g) || []
+  for (const p of prices) keywords.add(p.replace(/\s+/g, ''))
+
+  return Array.from(keywords).slice(0, 15)
 }
