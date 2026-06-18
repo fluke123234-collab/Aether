@@ -192,20 +192,24 @@ function HeroGreeting() {
 function FloatingCapsule({
   onCapture,
   onCaptureWithImage,
+  onCaptureWithAudio,
 }: {
   onCapture: (text: string) => void
   onCaptureWithImage: (text: string, image: string) => void
+  onCaptureWithAudio: (text: string, audio: string) => void
 }) {
   const [value, setValue] = useState('')
   const [pendingImage, setPendingImage] = useState<string | null>(null)
-  const { listening, supported, start, stop } = useVoiceCapture()
+  const { listening, supported, start, stop, audioData } = useVoiceCapture()
 
   const handleSubmit = () => {
     const text = value.trim()
-    if (!text && !pendingImage) return
+    if (!text && !pendingImage && !audioData) return
     ensureAuthenticated(() => {
       if (pendingImage) {
         onCaptureWithImage(text, pendingImage)
+      } else if (audioData) {
+        onCaptureWithAudio(text || 'Voice note', audioData)
       } else {
         onCapture(text)
       }
@@ -583,7 +587,63 @@ function MemoryCard({
           ))}
         </div>
       )}
+
+      {/* Action row: insight / PDF / delete — appears on hover */}
+      {!processing && (
+        <div className="mt-4 flex items-center justify-end gap-1 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+          <button
+            aria-label="AI insight"
+            onClick={() => ensureAuthenticated(() => onInsight(memory))}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 hover:scale-110 hover:bg-purple-50 hover:text-purple-600 active:scale-95"
+          >
+            <Sparkles className="h-4 w-4" />
+          </button>
+          <button
+            aria-label="Download as PDF"
+            onClick={() => ensureAuthenticated(() => onDownloadPdf(memory))}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 hover:scale-110 hover:bg-zinc-100 hover:text-zinc-700 active:scale-95"
+          >
+            <Download className="h-4 w-4" />
+          </button>
+          <DeleteButton memory={memory} onDelete={onDelete} />
+        </div>
+      )}
     </article>
+  )
+}
+
+/* Delete button with two-step confirm */
+function DeleteButton({ memory, onDelete }: { memory: MemoryRow; onDelete: (m: MemoryRow) => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  if (confirmDelete) {
+    return (
+      <div className="flex items-center gap-1 rounded-full bg-rose-50 px-1 py-0.5">
+        <button
+          aria-label="Confirm delete"
+          onClick={() => onDelete(memory)}
+          className="flex h-7 items-center justify-center gap-1 rounded-full bg-rose-500 px-3 text-xs font-medium text-white transition-all duration-200 hover:bg-rose-600 active:scale-95"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete
+        </button>
+        <button
+          aria-label="Cancel delete"
+          onClick={() => setConfirmDelete(false)}
+          className="flex h-7 w-7 items-center justify-center rounded-full text-rose-400 transition-all duration-200 hover:bg-rose-100 active:scale-95"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    )
+  }
+  return (
+    <button
+      aria-label="Delete memory"
+      onClick={() => ensureAuthenticated(() => setConfirmDelete(true))}
+      className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 hover:scale-110 hover:bg-rose-50 hover:text-rose-500 active:scale-95"
+    >
+      <Trash2 className="h-4 w-4" />
+    </button>
   )
 }
 
@@ -860,7 +920,53 @@ export default function Home() {
     [refetch]
   )
 
-  // Favorite toggle — only ever called once ensureAuthenticated has passed.
+  // Capture with a voice note — sends the audio base64 so the user can
+  // play it back later by pressing the memory card.
+  const addMemoryWithAudio = useCallback(
+    (text: string, audio: string) => {
+      const tempId = `temp-${crypto.randomUUID()}`
+      const optimistic: MemoryRow = {
+        id: tempId,
+        title: 'Capturing voice note…',
+        body: text,
+        summary: null,
+        category: 'note',
+        tags: ['capture', 'voice'],
+        processing: true,
+        user_id: null,
+        metadata: { audioData: audio },
+        created_at: new Date().toISOString(),
+      }
+      setMemories((prev) => [optimistic, ...prev])
+
+      void (async () => {
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (!session?.user) {
+            setMemories((prev) => prev.filter((m) => m.id !== tempId))
+            toast.error('Please sign in to capture thoughts.')
+            return
+          }
+          const res = await fetch('/api/capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ content: text, audio }),
+          })
+          const json = (await res.json()) as { success?: boolean; id?: string; error?: string }
+          if (!res.ok || !json.success) throw new Error(json.error || 'Could not capture that voice note.')
+          const realId = json.id as string
+          setMemories((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: realId, user_id: session.user.id } : m)))
+          toast.success('Voice note captured.', { description: 'Aether is transcribing it in the background.' })
+          setTimeout(() => void refetch(), 3500)
+          setTimeout(() => void refetch(), 8000)
+        } catch (err) {
+          setMemories((prev) => prev.filter((m) => m.id !== tempId))
+          toast.error(err instanceof Error ? err.message : 'Could not capture that voice note.')
+        }
+      })()
+    },
+    [refetch]
+  )
   const toggleFavorite = useCallback((id: string) => {
     setFavorites((prev) => {
       const next = new Set(prev)
@@ -938,7 +1044,7 @@ export default function Home() {
 
       <Footer />
 
-      <FloatingCapsule onCapture={addMemory} onCaptureWithImage={addMemoryWithImage} />
+      <FloatingCapsule onCapture={addMemory} onCaptureWithImage={addMemoryWithImage} onCaptureWithAudio={addMemoryWithAudio} />
 
       <AuthModal />
       <RecapModal open={recapOpen} onClose={() => setRecapOpen(false)} />

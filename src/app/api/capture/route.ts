@@ -28,7 +28,7 @@ const ZAI_API_KEY = process.env.ZAI_API_KEY || ''
 const ZAI_BASE_URL = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1'
 
 export async function POST(req: NextRequest) {
-  let body: { content?: unknown; image?: unknown }
+  let body: { content?: unknown; image?: unknown; audio?: unknown }
 
   try {
     body = await req.json()
@@ -38,8 +38,9 @@ export async function POST(req: NextRequest) {
 
   const content = typeof body.content === 'string' ? body.content.trim() : ''
   const hasImage = typeof body.image === 'string' && body.image.startsWith('data:image/')
+  const hasAudio = typeof body.audio === 'string' && body.audio.startsWith('data:audio')
 
-  if (!content && !hasImage) {
+  if (!content && !hasImage && !hasAudio) {
     return NextResponse.json({ success: false, error: 'empty_content' }, { status: 400 })
   }
 
@@ -66,7 +67,11 @@ export async function POST(req: NextRequest) {
   )
 
   // ── Step 1: instant insert with placeholder metadata + verified user_id ──
-  const finalContent = content || (hasImage ? 'Image capture' : '')
+  const finalContent = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
+  const initialMetadata: Record<string, unknown> | null = {}
+  if (hasImage && typeof body.image === 'string') initialMetadata.imageData = body.image
+  if (hasAudio && typeof body.audio === 'string') initialMetadata.audioData = body.audio
+
   const { data, error } = await userClient
     .from('memories')
     .insert([
@@ -75,13 +80,11 @@ export async function POST(req: NextRequest) {
         body: finalContent,
         content: finalContent,
         summary: '',
-        category: hasImage ? 'image' : 'note',
+        category: hasImage ? 'image' : (hasAudio ? 'note' : 'note'),
         tags: ['capture'],
         processing: true,
         user_id: userId,
-        metadata: hasImage && typeof body.image === 'string'
-          ? { imageData: body.image }
-          : null,
+        metadata: Object.keys(initialMetadata).length > 0 ? initialMetadata : null,
       },
     ])
     .select()
@@ -171,7 +174,7 @@ export async function POST(req: NextRequest) {
         // Non-critical.
       }
 
-      // 3. Update the row with enriched data — preserve the image data.
+      // 3. Update the row with enriched data — preserve image + audio data.
       const metadataObj: Record<string, unknown> = {
         title, summary, tags, type: memoryType, connections,
         imageDescription: imageDescription || undefined,
@@ -179,6 +182,10 @@ export async function POST(req: NextRequest) {
       // Preserve the original image data so the card can display it.
       if (hasImage && typeof body.image === 'string') {
         metadataObj.imageData = body.image
+      }
+      // Preserve the original audio data so the card can play it back.
+      if (hasAudio && typeof body.audio === 'string') {
+        metadataObj.audioData = body.audio
       }
 
       const { error } = await userClient
