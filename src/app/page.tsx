@@ -522,37 +522,64 @@ function MemoryCard({
         {memory.title}
       </h4>
 
-      {/* Show the original image if available */}
+      {/* Image — clean framed thumbnail, expands on click, shrinks on unhover */}
       {imageData && (
-        <div className="mb-3">
+        <div className="mb-4 overflow-hidden rounded-xl border border-zinc-100 transition-all duration-500">
           {showImage ? (
             <div className="relative">
-              <img src={imageData} alt={memory.title} className="w-full rounded-xl" />
-              <button aria-label="Hide image" onClick={() => setShowImage(false)} className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white transition-all hover:bg-black/70 active:scale-95"><X className="h-3.5 w-3.5" /></button>
+              <img src={imageData} alt={memory.title} className="w-full max-h-[400px] object-contain bg-zinc-50" />
+              <button aria-label="Collapse image" onClick={() => setShowImage(false)} className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95">
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           ) : (
-            <button onClick={() => setShowImage(true)} className="flex w-full items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-2 transition-all duration-300 hover:border-purple-200 hover:bg-purple-50/40 active:scale-[0.98]">
-              <img src={imageData} alt="Memory image" className="h-14 w-14 rounded-lg object-cover" />
-              <div className="flex-1 text-left">
-                <p className="text-xs font-medium text-zinc-700">View original image</p>
-                <p className="text-[10px] text-zinc-400">Click to expand</p>
+            <button onClick={() => setShowImage(true)} className="group/img relative block w-full overflow-hidden">
+              <img src={imageData} alt={memory.title} className="w-full max-h-32 object-cover transition-all duration-500 group-hover/img:max-h-48 group-hover/img:scale-[1.02]" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent transition-opacity duration-300 group-hover/img:from-black/40" />
+              <div className="absolute bottom-2 left-3 flex items-center gap-1.5">
+                <ImageIcon className="h-3 w-3 text-white/80" />
+                <span className="text-[10px] font-medium text-white/80">Click to expand</span>
               </div>
-              <ImageIcon className="h-4 w-4 text-zinc-400" />
             </button>
           )}
         </div>
       )}
 
-      {/* Voice note playback */}
+      {/* Voice note — clean waveform design */}
       {audioData && (
-        <div className="mb-3">
+        <div className="mb-4">
           <audio ref={audioRef} src={audioData} onEnded={() => setPlaying(false)} className="hidden" />
-          <button onClick={toggleAudio} className="flex w-full items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-2 transition-all duration-300 hover:border-purple-200 hover:bg-purple-50/40 active:scale-[0.98]">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-100 text-purple-600">
-              {playing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+          <div className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/40 p-3 transition-all duration-300 hover:border-purple-200 hover:bg-purple-50/30">
+            <button
+              onClick={toggleAudio}
+              aria-label={playing ? 'Pause voice note' : 'Play voice note'}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-500 text-white transition-all duration-300 hover:bg-purple-600 hover:scale-105 active:scale-95"
+            >
+              {playing ? (
+                <span className="flex gap-0.5">
+                  <span className="h-3 w-0.5 rounded-full bg-white" />
+                  <span className="h-3 w-0.5 rounded-full bg-white" />
+                </span>
+              ) : (
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+              )}
+            </button>
+            {/* Animated waveform bars */}
+            <div className="flex h-8 flex-1 items-center gap-0.5">
+              {Array.from({ length: 28 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`flex-1 rounded-full transition-all duration-300 ${playing ? 'bg-purple-400 animate-pulse' : 'bg-zinc-300'}`}
+                  style={{
+                    height: playing ? `${20 + Math.sin(i * 0.5) * 50 + Math.random() * 30}%` : `${15 + Math.sin(i * 0.3) * 25}%`,
+                    animationDelay: `${i * 50}ms`,
+                    animationDuration: '0.8s',
+                  }}
+                />
+              ))}
             </div>
-            <span className="flex-1 text-left text-xs text-zinc-500">{playing ? 'Playing voice note…' : 'Play voice note'}</span>
-          </button>
+            <span className="shrink-0 text-[10px] font-medium text-zinc-400">{playing ? 'Playing…' : 'Voice note'}</span>
+          </div>
         </div>
       )}
 
@@ -560,10 +587,13 @@ function MemoryCard({
         {memory.body}
       </p>
 
-      {/* Show the AI's image description if available */}
+      {/* AI image description — clean, subtle */}
       {!processing && imageDesc && (
-        <div className="mb-4 flex gap-2 rounded-xl bg-zinc-50/60 px-3 py-2.5">
-          <ImageIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-400" />
+        <div className="mb-4 rounded-xl border border-zinc-100/80 bg-gradient-to-br from-zinc-50/80 to-purple-50/20 px-4 py-3">
+          <div className="mb-1 flex items-center gap-1.5">
+            <ImageIcon className="h-3 w-3 text-zinc-400" />
+            <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">AI image analysis</span>
+          </div>
           <p className="text-xs leading-relaxed text-zinc-500">{imageDesc}</p>
         </div>
       )}
