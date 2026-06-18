@@ -23,12 +23,22 @@ import {
   LogOut,
   X,
   FolderX,
+  Download,
+  Trash2,
+  MoreHorizontal,
   type LucideIcon,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore, ensureAuthenticated } from '@/lib/auth-store'
 import { AuthModal } from '@/components/aether/AuthModal'
 import { Collections } from '@/components/aether/Collections'
+import { RecapModal } from '@/components/aether/RecapModal'
+import { InsightModal } from '@/components/aether/InsightModal'
+import { AskAetherModal } from '@/components/aether/AskAetherModal'
+import { ProfileModal } from '@/components/aether/ProfileModal'
+import { Serendipity } from '@/components/aether/Serendipity'
+import { useVoiceCapture } from '@/hooks/use-voice-capture'
+import { initTheme } from '@/lib/theme-store'
 import type { MemoryRow } from '@/lib/types'
 import { logger } from '@/lib/logger'
 
