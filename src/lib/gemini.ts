@@ -86,80 +86,76 @@ export async function analyzeMemoryText(content: string): Promise<string> {
   const text = (content ?? '').trim()
   if (!text) return JSON.stringify(fallbackAnalysis(text))
 
-  if (!GEMINI_API_KEY) {
-    // No key configured — resolve deterministically so the pipeline still flows.
-    logger.warn('Aether · GEMINI_API_KEY not set — using heuristic metadata.')
-    return JSON.stringify(fallbackAnalysis(text))
-  }
-
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 12000)
-
-    const res = await fetch(`${GEMINI_ENDPOINT}?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: [{ role: 'user', parts: [{ text }] }],
-        generationConfig: {
-          temperature: 0.4,
-          maxOutputTokens: 200,
-          // Native JSON mode — eliminates most parsing failures.
-          responseMimeType: 'application/json',
-        },
-      }),
-    })
-
-    clearTimeout(timeout)
-
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '')
-      throw new Error(`Gemini HTTP ${res.status}: ${errBody.slice(0, 120)}`)
-    }
-
-    const json = await res.json()
-    const raw: string =
-      json?.candidates?.[0]?.content?.parts?.[0]?.text ??
-      json?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).join('') ??
-      ''
-
-    // Strict parse — wrapped so a bad payload never crashes the worker.
-    let parsed: { title?: unknown; summary?: unknown; tags?: unknown }
+  // Try Gemini first (if key is set and working)
+  if (GEMINI_API_KEY) {
     try {
-      parsed = JSON.parse(raw)
-    } catch {
-      // Last-resort: scrape a JSON object out of the text.
-      const match = raw.match(/\{[\s\S]*\}/)
-      parsed = match ? JSON.parse(match[0]) : {}
-    }
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000)
 
-    const title =
-      typeof parsed.title === 'string' && parsed.title.trim()
-        ? parsed.title.trim().slice(0, 80)
-        : fallbackAnalysis(text).title
-    const summary =
-      typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 280) : ''
-    const tags = Array.isArray(parsed.tags)
-      ? parsed.tags
-          .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
-          .map((t) => t.trim())
-          .slice(0, 3)
-      : ['capture']
+      const res = await fetch(`${GEMINI_ENDPOINT}?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents: [{ role: 'user', parts: [{ text }] }],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 200, responseMimeType: 'application/json' },
+        }),
+      })
 
-    const result: MemoryAnalysis = {
-      title,
-      summary,
-      tags: tags.length ? tags : ['capture'],
+      clearTimeout(timeout)
+
+      if (res.ok) {
+        const json = await res.json()
+        const raw: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? json?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).join('') ?? ''
+        const parsed = parseAnalysisJson(raw, text)
+        if (parsed) return JSON.stringify(parsed)
+      }
+    } catch (err) {
+      logger.warn('Aether · Gemini enrichment fell back to Z.ai:', err instanceof Error ? err.message : err)
     }
-    return JSON.stringify(result)
-  } catch (err) {
-    // Rate limit, network, syntax — never hang the row.
-    logger.warn(
-      'Aether · analyzeMemoryText fell back:',
-      err instanceof Error ? err.message : err
-    )
-    return JSON.stringify(fallbackAnalysis(text))
   }
+
+  // Try Z.ai (always available with the env vars)
+  const ZAI_API_KEY = process.env.ZAI_API_KEY || ''
+  const ZAI_BASE_URL = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1'
+  if (ZAI_API_KEY) {
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${ZAI_API_KEY}`, 'X-Z-AI-From': 'Z' }
+      if (process.env.ZAI_CHAT_ID) headers['X-Chat-Id'] = process.env.ZAI_CHAT_ID
+      if (process.env.ZAI_USER_ID) headers['X-User-Id'] = process.env.ZAI_USER_ID
+      if (process.env.ZAI_TOKEN) headers['X-Token'] = process.env.ZAI_TOKEN
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000)
+      const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers,
+        signal: controller.signal,
+        body: JSON.stringify({ messages: [{ role: 'system', content: SYSTEM_PROMPT + '\n\nOutput valid raw JSON only: {"title":"...","summary":"...","tags":["..."]}' }, { role: 'user', content: text }], thinking: { type: 'disabled' } }),
+      })
+      clearTimeout(timeout)
+      if (res.ok) {
+        const json = await res.json()
+        const raw = json?.choices?.[0]?.message?.content ?? ''
+        const parsed = parseAnalysisJson(raw, text)
+        if (parsed) return JSON.stringify(parsed)
+      }
+    } catch (err) {
+      logger.warn('Aether · Z.ai enrichment fell back:', err instanceof Error ? err.message : err)
+    }
+  }
+
+  // Heuristic fallback
+  return JSON.stringify(fallbackAnalysis(text))
+}
+
+function parseAnalysisJson(raw: string, text: string): MemoryAnalysis | null {
+  try {
+    let parsed: { title?: unknown; summary?: unknown; tags?: unknown }
+    try { parsed = JSON.parse(raw) } catch { const match = raw.match(/\{[\s\S]*\}/); parsed = match ? JSON.parse(match[0]) : {} }
+    const title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim().slice(0, 80) : fallbackAnalysis(text).title
+    const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 280) : ''
+    const tags = Array.isArray(parsed.tags) ? parsed.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim()).slice(0, 3) : ['capture']
+    return { title, summary, tags: tags.length ? tags : ['capture'] }
+  } catch { return null }
 }
