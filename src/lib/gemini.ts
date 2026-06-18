@@ -80,7 +80,7 @@ export async function analyzeMemoryText(content: string): Promise<string> {
       if (process.env.ZAI_TOKEN) headers['X-Token'] = process.env.ZAI_TOKEN
 
       const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 5000)
+      const timeout = setTimeout(() => controller.abort(), 4000)
 
       const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
         method: 'POST',

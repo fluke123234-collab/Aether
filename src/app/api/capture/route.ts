@@ -102,14 +102,21 @@ export async function POST(req: NextRequest) {
 
   // ── Step 2: do enrichment SYNCHRONOUSLY (after() may not run on Vercel) ──
   // Run image analysis + text enrichment IN PARALLEL for speed.
+  // Use 4s timeouts to stay within Vercel's 10s function limit.
   const imagePromise = (hasImage && typeof body.image === 'string')
-    ? analyzeImage(body.image).catch(() => '')
+    ? Promise.race([
+        analyzeImage(body.image).catch(() => ''),
+        new Promise<string>((resolve) => setTimeout(() => resolve(''), 4000))
+      ])
     : Promise.resolve('')
 
   const textForEnrichment = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
-  const enrichmentPromise = analyzeMemoryText(textForEnrichment)
+  const enrichmentPromise = Promise.race([
+    analyzeMemoryText(textForEnrichment),
+    new Promise<string>((resolve) => setTimeout(() => resolve(JSON.stringify({ title: textForEnrichment.slice(0, 60), summary: '', tags: ['capture'] })), 4000))
+  ])
 
-  // Wait for both in parallel (max 5s each).
+  // Wait for both in parallel.
   const [imageDescription, aiResponseString] = await Promise.all([
     imagePromise,
     enrichmentPromise,

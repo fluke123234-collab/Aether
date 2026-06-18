@@ -140,8 +140,15 @@ async function tryZai(history: { role: 'user' | 'model'; text: string }[], fullP
 
 async function tryZaiSdk(history: { role: 'user' | 'model'; text: string }[], fullPrompt: string): Promise<string | null> {
   try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
+    const ZAIModule = await import('z-ai-web-dev-sdk')
+    const ZAI = ZAIModule.default
+    const zai = new ZAI({
+      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
+      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
+      token: process.env.ZAI_TOKEN || '',
+      chatId: process.env.ZAI_CHAT_ID || '',
+      userId: process.env.ZAI_USER_ID || '',
+    })
     const messages = [{ role: 'system', content: SYSTEM_PROMPT }, ...history.map((h) => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.text })), { role: 'user', content: fullPrompt }]
     const res = await zai.chat.completions.create({ messages })
     return res.choices[0]?.message?.content ?? null
