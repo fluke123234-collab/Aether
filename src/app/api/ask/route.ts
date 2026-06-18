@@ -36,12 +36,12 @@ CORE OPERATIONAL BEHAVIORS:
 
 6. MEMORY CONNECTIONS: When answering, actively look for connections between DIFFERENT memories. If memory A mentions a budget and memory B mentions a purchase, connect them. If memory C is an idea and memory D is a task, note how they relate. Weave these connections naturally into your answer.
 
-MEMORY RELEVANCE — CRITICAL:
-Only cite a memory id in memoryIds if its facts were DIRECTLY USED in your answer. If no memories were used, return an empty array. Quality over quantity.
+MEMORY RELEVANCE:
+Cite a memory id in memoryIds if its facts were used in OR relevant to your answer. When the user asks "what did I save this week?" or "what have I been thinking about?", include ALL memories from that time period — not just 2. Be generous with citations when the question is about recalling or reviewing memories.
 
 OUTPUT FORMAT:
 Respond with valid raw JSON only — no markdown code fences:
-{"answer":"Your response.","memoryIds":["id1","id2"]}`
+{"answer":"Your response.","memoryIds":["id1","id2","id3","id4"]}`
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization')

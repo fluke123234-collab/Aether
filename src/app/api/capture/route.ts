@@ -130,6 +130,7 @@ export async function POST(req: NextRequest) {
       title?: unknown
       summary?: unknown
       tags?: unknown
+      body?: unknown
     }
 
     const title =
@@ -144,9 +145,14 @@ export async function POST(req: NextRequest) {
           .map((t) => t.trim())
           .slice(0, 3)
       : []
+    // Use AI-corrected body if available, otherwise keep the original.
+    const correctedBody =
+      typeof aiData.body === 'string' && aiData.body.trim()
+        ? aiData.body.trim().slice(0, 500)
+        : finalContent
 
-    const memoryType = classifyMemoryType(content || finalContent)
-    const allContent = [content, imageDescription].filter(Boolean).join(' ')
+    const memoryType = hasImage ? 'image' : classifyMemoryType(correctedBody)
+    const allContent = [correctedBody, imageDescription].filter(Boolean).join(' ')
     const searchKeywords = extractKeywords(allContent, tags)
 
     const metadataObj: Record<string, unknown> = {
@@ -157,12 +163,14 @@ export async function POST(req: NextRequest) {
     if (hasImage && typeof body.image === 'string') metadataObj.imageData = body.image
     if (hasAudio && typeof body.audio === 'string') metadataObj.audioData = body.audio
 
-    // Update the row with enriched data.
+    // Update the row with enriched data — including corrected body.
     await userClient
       .from('memories')
       .update({
         metadata: metadataObj,
         title,
+        body: correctedBody,
+        content: correctedBody,
         summary,
         tags,
         category: memoryType,

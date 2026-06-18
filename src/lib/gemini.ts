@@ -14,6 +14,7 @@ export type MemoryAnalysis = {
   title: string
   summary: string
   tags: string[]
+  body?: string
 }
 
 const ZAI_API_KEY = process.env.ZAI_API_KEY || ''
@@ -21,9 +22,11 @@ const ZAI_BASE_URL = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1'
 
 const ENRICHMENT_PROMPT = `You are Aether's memory curator. Given a raw captured thought, return metadata as valid raw JSON only. No markdown code blocks.
 
-Be extremely brief. Title max 5 words, Title Case. Summary 1 sentence max 15 words. 1-3 tags, lowercase.
+Be extremely brief. Title max 5 words, Title Case, no trailing punctuation. Summary 1 sentence max 15 words, proper punctuation. 1-3 tags, lowercase.
 
-Return exactly: {"title":"...","summary":"...","tags":["tag1","tag2"]}`
+ALSO: fix the body text — correct spelling, add proper capitalization and punctuation (periods, commas, apostrophes). Keep the user's original words but make it grammatically correct.
+
+Return exactly: {"title":"...","summary":"...","tags":["tag1","tag2"],"body":"corrected body text with proper punctuation"}`
 
 /* ── Instant heuristic fallback — no API call needed ── */
 function fallbackAnalysis(content: string): MemoryAnalysis {
@@ -111,11 +114,12 @@ export async function analyzeMemoryText(content: string): Promise<string> {
 
 function parseAnalysisJson(raw: string, text: string): MemoryAnalysis | null {
   try {
-    let parsed: { title?: unknown; summary?: unknown; tags?: unknown }
+    let parsed: { title?: unknown; summary?: unknown; tags?: unknown; body?: unknown }
     try { parsed = JSON.parse(raw) } catch { const match = raw.match(/\{[\s\S]*\}/); parsed = match ? JSON.parse(match[0]) : {} }
     const title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim().slice(0, 80) : fallbackAnalysis(text).title
     const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 200) : ''
     const tags = Array.isArray(parsed.tags) ? parsed.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim()).slice(0, 3) : ['capture']
-    return { title, summary, tags: tags.length ? tags : ['capture'] }
+    const body = typeof parsed.body === 'string' && parsed.body.trim() ? parsed.body.trim().slice(0, 500) : undefined
+    return { title, summary, tags: tags.length ? tags : ['capture'], body }
   } catch { return null }
 }

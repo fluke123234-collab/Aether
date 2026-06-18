@@ -64,10 +64,13 @@ function CategoryIcon({
 }) {
   switch (category) {
     case 'idea':
+    case 'ideas':
       return <Lightbulb className={className} />
     case 'reading':
       return <BookOpen className={className} />
     case 'strategy':
+    case 'work':
+    case 'task':
       return <Compass className={className} />
     case 'quote':
       return <Feather className={className} />
@@ -75,6 +78,14 @@ function CategoryIcon({
       return <Palette className={className} />
     case 'ritual':
       return <Coffee className={className} />
+    case 'money':
+      return <Coffee className={className} />
+    case 'health':
+      return <Coffee className={className} />
+    case 'relationships':
+      return <Heart className={className} />
+    case 'image':
+      return <ImageIcon className={className} />
     default:
       return <Sparkles className={className} />
   }
@@ -518,7 +529,7 @@ function MemoryCard({
         </div>
       </div>
 
-      <h4 className="mb-2 text-[15px] font-semibold tracking-tight text-zinc-900">
+      <h4 className="mb-2 font-display text-lg font-normal tracking-tight text-zinc-900">
         {memory.title}
       </h4>
 
@@ -583,7 +594,7 @@ function MemoryCard({
         </div>
       )}
 
-      <p className="mb-5 text-sm leading-relaxed text-zinc-500">
+      <p className="mb-5 font-display text-[15px] leading-relaxed text-zinc-600">
         {memory.body}
       </p>
 
