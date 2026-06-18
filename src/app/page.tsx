@@ -849,8 +849,8 @@ export default function Home() {
           const realId = json.id as string
           setMemories((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: realId, user_id: session.user.id } : m)))
           toast.success('Captured.', { description: 'Aether is refining it in the background.' })
-          setTimeout(() => void refetch(), 3500)
-          setTimeout(() => void refetch(), 8000)
+          setTimeout(() => void refetch(), 2000)
+          setTimeout(() => void refetch(), 3000)
         } catch (err) {
           setMemories((prev) => prev.filter((m) => m.id !== tempId))
           if (err instanceof TypeError) {
@@ -904,8 +904,8 @@ export default function Home() {
           const realId = json.id as string
           setMemories((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: realId, user_id: session.user.id } : m)))
           toast.success('Image captured.', { description: 'Aether is reading it in the background.' })
-          setTimeout(() => void refetch(), 5000)
-          setTimeout(() => void refetch(), 10000)
+          setTimeout(() => void refetch(), 3000)
+          setTimeout(() => void refetch(), 6000)
         } catch (err) {
           setMemories((prev) => prev.filter((m) => m.id !== tempId))
           if (err instanceof TypeError) {
@@ -957,8 +957,8 @@ export default function Home() {
           const realId = json.id as string
           setMemories((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: realId, user_id: session.user.id } : m)))
           toast.success('Voice note captured.', { description: 'Aether is transcribing it in the background.' })
-          setTimeout(() => void refetch(), 3500)
-          setTimeout(() => void refetch(), 8000)
+          setTimeout(() => void refetch(), 2000)
+          setTimeout(() => void refetch(), 5000)
         } catch (err) {
           setMemories((prev) => prev.filter((m) => m.id !== tempId))
           toast.error(err instanceof Error ? err.message : 'Could not capture that voice note.')

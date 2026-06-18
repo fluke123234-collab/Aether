@@ -1,14 +1,11 @@
 /**
- * Aether · Phase 3 — Consolidated Gemini utility
+ * Aether · Memory enrichment — fast, token-efficient
  * ------------------------------------------------------------
- * A SINGLE background worker that derives { title, summary, tags }
- * from raw memory text in one token-efficient Gemini request.
- *
- * - Uses process.env.GEMINI_API_KEY (server-side only).
- * - Forces native JSON output mode so parsing never hangs.
- * - On any failure (missing key, rate limit, bad syntax) it falls
- *   back to a deterministic heuristic so the row still resolves
- *   instead of hanging in "processing" forever.
+ * Tries Z.ai first (5s timeout). If it fails, uses an instant
+ * heuristic fallback that generates a title, summary, and tags
+ * without any API call. This keeps captures fast even when the
+ * AI is unavailable, and saves tokens by only calling the AI
+ * for text that actually needs it.
  */
 
 import { logger } from './logger'
@@ -19,54 +16,39 @@ export type MemoryAnalysis = {
   tags: string[]
 }
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
+const ZAI_API_KEY = process.env.ZAI_API_KEY || ''
+const ZAI_BASE_URL = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1'
 
-const SYSTEM_PROMPT = `You are Aether's memory curator. Given a raw captured thought, return metadata as valid raw JSON only.
+const ENRICHMENT_PROMPT = `You are Aether's memory curator. Given a raw captured thought, return metadata as valid raw JSON only. No markdown code blocks.
 
-Be extremely brief. Do not wrap the JSON in markdown code blocks. Output valid raw JSON only. Keep the summary under 25 words. The title must be at most 5 words, in Title Case, no trailing punctuation.
+Be extremely brief. Title max 5 words, Title Case. Summary 1 sentence max 15 words. 1-3 tags, lowercase.
 
-Return exactly this shape and nothing else:
-{"title":"Hyper-concise title (max 5 words)","summary":"1-2 sentence maximum retrospective summary.","tags":["Tag1","Tag2","Tag3"]}
+Return exactly: {"title":"...","summary":"...","tags":["tag1","tag2"]}`
 
-Rules for tags:
-- 1 to 3 tags, single words or short compounds, PascalCase.
-- Lowercase first tag style is also fine; just be consistent.
-- No emojis, no quotes inside tags.`
-
-/* ── Heuristic fallback — keeps the row resolving without an API key ── */
-
+/* ── Instant heuristic fallback — no API call needed ── */
 function fallbackAnalysis(content: string): MemoryAnalysis {
   const clean = content.replace(/\s+/g, ' ').trim()
-  if (!clean) {
-    return { title: 'Untitled thought', summary: '', tags: ['capture'] }
-  }
+  if (!clean) return { title: 'Untitled thought', summary: '', tags: ['capture'] }
 
-  // Title = first <=6 words, truncated gracefully.
   const words = clean.split(' ')
   const titleRaw = words.slice(0, 6).join(' ')
-  const title =
-    titleRaw.length > 60
-      ? titleRaw.slice(0, 57).trimEnd() + '…'
-      : words.length > 6
-        ? titleRaw + '…'
-        : titleRaw
+  const title = titleRaw.length > 60 ? titleRaw.slice(0, 57).trimEnd() + '…' : (words.length > 6 ? titleRaw + '…' : titleRaw)
 
-  // Summary = first sentence (up to ~160 chars), clamped to 25 words.
   const firstSentence = clean.split(/(?<=[.!?])\s/)[0] ?? clean
-  const summaryWords = firstSentence.split(' ').slice(0, 25).join(' ')
-  const summary =
-    summaryWords.length > 160 ? summaryWords.slice(0, 157).trimEnd() + '…' : summaryWords
+  const summaryWords = firstSentence.split(' ').slice(0, 15).join(' ')
+  const summary = summaryWords.length > 120 ? summaryWords.slice(0, 117).trimEnd() + '…' : summaryWords
 
-  // Tags = a couple of naive keyword hints; always includes "capture".
   const lower = clean.toLowerCase()
   const tags = new Set<string>(['capture'])
   const hints: Record<string, string> = {
-    idea: 'idea', product: 'product', design: 'design', book: 'reading',
-    read: 'reading', reading: 'reading', quote: 'quote', strategy: 'strategy',
-    goal: 'strategy', ritual: 'ritual', habit: 'ritual', meeting: 'work',
-    code: 'engineering', bug: 'engineering', ship: 'work', money: 'finance',
+    idea: 'idea', product: 'product', design: 'design', book: 'reading', read: 'reading',
+    reading: 'reading', quote: 'quote', strategy: 'strategy', goal: 'strategy',
+    ritual: 'ritual', meeting: 'work', code: 'engineering', bug: 'engineering',
+    ship: 'work', money: 'finance', budget: 'finance', dollar: 'finance',
+    health: 'health', gym: 'health', sleep: 'health', food: 'health',
+    family: 'personal', friend: 'personal', love: 'personal',
+    task: 'task', todo: 'task', need: 'task', must: 'task', should: 'task',
+    buy: 'task', call: 'task', send: 'task', fix: 'task', finish: 'task',
   }
   for (const [kw, tag] of Object.entries(hints)) {
     if (lower.includes(kw) && tags.size < 3) tags.add(tag)
@@ -75,31 +57,38 @@ function fallbackAnalysis(content: string): MemoryAnalysis {
   return { title, summary, tags: Array.from(tags) }
 }
 
-/* ── The single consolidated Gemini call ──
- * Returns a JSON STRING (not a parsed object) so the caller can
- * log the raw payload and parse it inside a try/catch — this gives
- * full traceability when a Gemini response is malformed or rate-limited.
- * The internal fallback guarantees the returned string is always valid JSON.
- */
-
 export async function analyzeMemoryText(content: string): Promise<string> {
   const text = (content ?? '').trim()
   if (!text) return JSON.stringify(fallbackAnalysis(text))
 
-  // Try Gemini first (if key is set and working)
-  if (GEMINI_API_KEY) {
-    try {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 10000)
+  // Short text (under 20 chars) — use heuristic, don't waste an API call.
+  if (text.length < 20) return JSON.stringify(fallbackAnalysis(text))
 
-      const res = await fetch(`${GEMINI_ENDPOINT}?key=${GEMINI_API_KEY}`, {
+  // Try Z.ai with a short 5s timeout.
+  if (ZAI_API_KEY) {
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ZAI_API_KEY}`,
+        'X-Z-AI-From': 'Z',
+      }
+      if (process.env.ZAI_CHAT_ID) headers['X-Chat-Id'] = process.env.ZAI_CHAT_ID
+      if (process.env.ZAI_USER_ID) headers['X-User-Id'] = process.env.ZAI_USER_ID
+      if (process.env.ZAI_TOKEN) headers['X-Token'] = process.env.ZAI_TOKEN
+
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5000)
+
+      const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         signal: controller.signal,
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents: [{ role: 'user', parts: [{ text }] }],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 200, responseMimeType: 'application/json' },
+          messages: [
+            { role: 'system', content: ENRICHMENT_PROMPT },
+            { role: 'user', content: text.slice(0, 500) }, // Truncate to save tokens
+          ],
+          thinking: { type: 'disabled' },
         }),
       })
 
@@ -107,45 +96,16 @@ export async function analyzeMemoryText(content: string): Promise<string> {
 
       if (res.ok) {
         const json = await res.json()
-        const raw: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? json?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).join('') ?? ''
-        const parsed = parseAnalysisJson(raw, text)
-        if (parsed) return JSON.stringify(parsed)
-      }
-    } catch (err) {
-      logger.warn('Aether · Gemini enrichment fell back to Z.ai:', err instanceof Error ? err.message : err)
-    }
-  }
-
-  // Try Z.ai (always available with the env vars)
-  const ZAI_API_KEY = process.env.ZAI_API_KEY || ''
-  const ZAI_BASE_URL = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1'
-  if (ZAI_API_KEY) {
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${ZAI_API_KEY}`, 'X-Z-AI-From': 'Z' }
-      if (process.env.ZAI_CHAT_ID) headers['X-Chat-Id'] = process.env.ZAI_CHAT_ID
-      if (process.env.ZAI_USER_ID) headers['X-User-Id'] = process.env.ZAI_USER_ID
-      if (process.env.ZAI_TOKEN) headers['X-Token'] = process.env.ZAI_TOKEN
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 10000)
-      const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers,
-        signal: controller.signal,
-        body: JSON.stringify({ messages: [{ role: 'system', content: SYSTEM_PROMPT + '\n\nOutput valid raw JSON only: {"title":"...","summary":"...","tags":["..."]}' }, { role: 'user', content: text }], thinking: { type: 'disabled' } }),
-      })
-      clearTimeout(timeout)
-      if (res.ok) {
-        const json = await res.json()
         const raw = json?.choices?.[0]?.message?.content ?? ''
         const parsed = parseAnalysisJson(raw, text)
         if (parsed) return JSON.stringify(parsed)
       }
     } catch (err) {
-      logger.warn('Aether · Z.ai enrichment fell back:', err instanceof Error ? err.message : err)
+      logger.warn('Aether · enrichment fell back:', err instanceof Error ? err.message : err)
     }
   }
 
-  // Heuristic fallback
+  // Instant fallback — no API call, no delay.
   return JSON.stringify(fallbackAnalysis(text))
 }
 
@@ -154,7 +114,7 @@ function parseAnalysisJson(raw: string, text: string): MemoryAnalysis | null {
     let parsed: { title?: unknown; summary?: unknown; tags?: unknown }
     try { parsed = JSON.parse(raw) } catch { const match = raw.match(/\{[\s\S]*\}/); parsed = match ? JSON.parse(match[0]) : {} }
     const title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim().slice(0, 80) : fallbackAnalysis(text).title
-    const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 280) : ''
+    const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 200) : ''
     const tags = Array.isArray(parsed.tags) ? parsed.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim()).slice(0, 3) : ['capture']
     return { title, summary, tags: tags.length ? tags : ['capture'] }
   } catch { return null }

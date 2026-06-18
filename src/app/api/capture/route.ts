@@ -102,29 +102,33 @@ export async function POST(req: NextRequest) {
   const insertedAt = Date.now()
 
   // ── Step 4: background enrichment, AFTER the response is sent ──
+  // Run image analysis + text enrichment IN PARALLEL for speed.
   after(async () => {
-    // If an image was attached, analyze it via VLM first.
-    let imageDescription = ''
-    if (hasImage && typeof body.image === 'string') {
-      try {
-        imageDescription = await analyzeImage(body.image)
-      } catch (err) {
-        logger.warn('Aether · image analysis failed:', err instanceof Error ? err.message : err)
-      }
+    // Start both tasks simultaneously.
+    const imagePromise = (hasImage && typeof body.image === 'string')
+      ? analyzeImage(body.image).catch(() => '')
+      : Promise.resolve('')
+
+    const textForEnrichment = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
+    const enrichmentPromise = analyzeMemoryText(textForEnrichment)
+
+    // Wait for both in parallel.
+    const [imageDescription, aiResponseString] = await Promise.all([
+      imagePromise,
+      enrichmentPromise,
+    ])
+
+    // If we got an image description, re-enrich with the full context.
+    let finalAiResponse = aiResponseString
+    if (imageDescription) {
+      const fullText = [content, `[Image content: ${imageDescription}]`].filter(Boolean).join('\n\n')
+      finalAiResponse = await analyzeMemoryText(fullText)
     }
 
-    // The text the AI enriches: the user's note + the image description.
-    const enrichmentText = [content, imageDescription ? `[Image content: ${imageDescription}]` : '']
-      .filter(Boolean)
-      .join('\n\n')
-
-    // 1. Await the consolidated AI analysis payload (a JSON string).
-    const aiResponseString = await analyzeMemoryText(enrichmentText || imageDescription || finalContent)
-
-    logger.info('Gemini Raw Output:', aiResponseString)
+    logger.info('AI enrichment output:', finalAiResponse)
 
     try {
-      const aiData = JSON.parse(aiResponseString) as {
+      const aiData = JSON.parse(finalAiResponse) as {
         title?: unknown
         summary?: unknown
         tags?: unknown
@@ -143,40 +147,12 @@ export async function POST(req: NextRequest) {
             .slice(0, 3)
         : []
 
-      // Auto-classify the memory type (life area).
-      const memoryType = classifyMemoryType(enrichmentText || content)
-
-      // Smart connections: find related past memories.
-      let connections: string[] = []
-      try {
-        const { data: pastMemories } = await userClient
-          .from('memories')
-          .select('id, title, body, tags')
-          .eq('user_id', userId)
-          .neq('id', memoryId)
-          .order('created_at', { ascending: false })
-          .limit(30)
-
-        if (pastMemories && pastMemories.length > 0) {
-          const newWords = (enrichmentText || content).toLowerCase().split(/\s+/).filter((w) => w.length > 4)
-          const newTags = tags.map((t) => t.toLowerCase())
-          connections = pastMemories
-            .filter((m) => {
-              const pastText = (m.title + ' ' + m.body + ' ' + (m.tags ?? []).join(' ')).toLowerCase()
-              const tagMatch = (m.tags ?? []).some((t) => newTags.includes(t.toLowerCase()))
-              const wordMatches = newWords.filter((w) => pastText.includes(w)).length
-              return tagMatch || wordMatches >= 2
-            })
-            .slice(0, 3)
-            .map((m) => m.id)
-        }
-      } catch {
-        // Non-critical.
-      }
+      // Auto-classify the memory type (life area) — instant, no API call.
+      const memoryType = classifyMemoryType(content || finalContent)
 
       // 3. Update the row with enriched data — preserve image + audio data.
       const metadataObj: Record<string, unknown> = {
-        title, summary, tags, type: memoryType, connections,
+        title, summary, tags, type: memoryType,
         imageDescription: imageDescription || undefined,
       }
       // Preserve the original image data so the card can display it.
