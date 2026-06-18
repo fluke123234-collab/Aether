@@ -456,6 +456,19 @@ function MemoryCard({
   const pills =
     (memory.metadata?.tags?.length ? memory.metadata.tags : memory.tags) ?? []
   const processing = memory.processing === true
+  const imageData = memory.metadata?.imageData
+  const imageDesc = memory.metadata?.imageDescription
+  const audioData = memory.metadata?.audioData
+  const [showImage, setShowImage] = useState(false)
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const [playing, setPlaying] = useState(false)
+
+  const toggleAudio = () => {
+    if (!audioRef.current) return
+    if (playing) { audioRef.current.pause(); setPlaying(false) }
+    else { audioRef.current.play(); setPlaying(true) }
+  }
+
   return (
     <article className="group rounded-2xl border border-zinc-100/60 bg-white p-6 shadow-[0_4px_20px_0_rgba(0,0,0,0.015)] transition-all duration-500 hover:shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] hover:-translate-y-0.5 hover:border-zinc-200/60">
       <div className="mb-5 flex items-center justify-between">
@@ -467,14 +480,12 @@ function MemoryCard({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {/* Favorite toggle — guarded: a guest never favorites, the modal intercepts. */}
+          {/* Favorite toggle */}
           <button
             aria-label={favorited ? 'Remove from favorites' : 'Add to favorites'}
             onClick={() => ensureAuthenticated(() => onToggleFavorite(memory.id))}
             className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-300 hover:scale-110 active:scale-95 ${
-              favorited
-                ? 'text-rose-500'
-                : 'text-zinc-300 hover:text-rose-400'
+              favorited ? 'text-rose-500' : 'text-zinc-300 hover:text-rose-400'
             }`}
           >
             <Heart className={`h-4 w-4 ${favorited ? 'fill-current' : ''}`} />
@@ -488,16 +499,54 @@ function MemoryCard({
       <h4 className="mb-2 text-[15px] font-semibold tracking-tight text-zinc-900">
         {memory.title}
       </h4>
+
+      {/* Show the original image if available */}
+      {imageData && (
+        <div className="mb-3">
+          {showImage ? (
+            <div className="relative">
+              <img src={imageData} alt={memory.title} className="w-full rounded-xl" />
+              <button aria-label="Hide image" onClick={() => setShowImage(false)} className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white transition-all hover:bg-black/70 active:scale-95"><X className="h-3.5 w-3.5" /></button>
+            </div>
+          ) : (
+            <button onClick={() => setShowImage(true)} className="flex w-full items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-2 transition-all duration-300 hover:border-zinc-200 hover:bg-zinc-50 active:scale-[0.98]">
+              <img src={imageData} alt="" className="h-12 w-12 rounded-lg object-cover" />
+              <span className="flex-1 text-left text-xs text-zinc-500">View original image</span>
+              <ImageIcon className="h-4 w-4 text-zinc-400" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Voice note playback */}
+      {audioData && (
+        <div className="mb-3">
+          <audio ref={audioRef} src={audioData} onEnded={() => setPlaying(false)} className="hidden" />
+          <button onClick={toggleAudio} className="flex w-full items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-2 transition-all duration-300 hover:border-purple-200 hover:bg-purple-50/40 active:scale-[0.98]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-100 text-purple-600">
+              {playing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+            </div>
+            <span className="flex-1 text-left text-xs text-zinc-500">{playing ? 'Playing voice note…' : 'Play voice note'}</span>
+          </button>
+        </div>
+      )}
+
       <p className="mb-5 text-sm leading-relaxed text-zinc-500">
         {memory.body}
       </p>
 
+      {/* Show the AI's image description if available */}
+      {!processing && imageDesc && (
+        <div className="mb-4 flex gap-2 rounded-xl bg-zinc-50/60 px-3 py-2.5">
+          <ImageIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-400" />
+          <p className="text-xs leading-relaxed text-zinc-500">{imageDesc}</p>
+        </div>
+      )}
+
       {!processing && memory.summary && (
         <div className="mb-4 flex gap-2 rounded-xl bg-purple-50/50 px-3 py-2.5">
           <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-purple-400" />
-          <p className="text-xs italic leading-relaxed text-purple-700/70">
-            {memory.summary}
-          </p>
+          <p className="text-xs italic leading-relaxed text-purple-700/70">{memory.summary}</p>
         </div>
       )}
 

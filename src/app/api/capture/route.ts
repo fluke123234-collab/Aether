@@ -79,7 +79,9 @@ export async function POST(req: NextRequest) {
         tags: ['capture'],
         processing: true,
         user_id: userId,
-        metadata: null,
+        metadata: hasImage && typeof body.image === 'string'
+          ? { imageData: body.image }
+          : null,
       },
     ])
     .select()
@@ -169,11 +171,20 @@ export async function POST(req: NextRequest) {
         // Non-critical.
       }
 
-      // 3. Update the row with enriched data.
+      // 3. Update the row with enriched data — preserve the image data.
+      const metadataObj: Record<string, unknown> = {
+        title, summary, tags, type: memoryType, connections,
+        imageDescription: imageDescription || undefined,
+      }
+      // Preserve the original image data so the card can display it.
+      if (hasImage && typeof body.image === 'string') {
+        metadataObj.imageData = body.image
+      }
+
       const { error } = await userClient
         .from('memories')
         .update({
-          metadata: { title, summary, tags, type: memoryType, connections, imageDescription: imageDescription || undefined },
+          metadata: metadataObj,
           title,
           summary,
           tags,
@@ -228,7 +239,7 @@ async function analyzeImage(imageDataUrl: string): Promise<string> {
           {
             role: 'user',
             content: [
-              { type: 'text', text: 'Describe this image thoroughly. Extract ALL visible text verbatim. Then describe the key visual content. Plain text only.' },
+              { type: 'text', text: 'Analyze this image with extreme detail and accuracy. This is critical — be thorough.\n\n1. EXTRACT ALL TEXT: Every word, number, price, label, spec, title, heading visible in the image. Transcribe verbatim, preserving exact numbers and prices.\n\n2. DESCRIBE CONTENT: What is shown? Products, parts, documents, receipts, screenshots, diagrams? List each item with its details (name, price, specs, quantities).\n\n3. SUMMARIZE: One sentence summary of what this image contains.\n\nOutput plain text, no JSON. Be exhaustive — every detail matters. If there are prices, list them. If there are part names, list them. If there are specs, list them.' },
               { type: 'image_url', image_url: { url: imageDataUrl } },
             ],
           },

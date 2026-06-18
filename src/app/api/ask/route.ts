@@ -58,10 +58,16 @@ export async function POST(req: NextRequest) {
 
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
 
-  const { data: rows, error: memError } = await userClient.from('memories').select('id, title, body, tags, created_at').eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(60)
+  const { data: rows, error: memError } = await userClient.from('memories').select('id, title, body, tags, metadata, created_at').eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(60)
   if (memError) return NextResponse.json({ success: false, answer: '', memoryIds: [], error: memError.message } satisfies AskResponse, { status: 500 })
 
-  const memories: MemoryRef[] = (rows ?? []).map((r) => ({ id: r.id, title: r.title || 'Untitled', body: (r.body || '').slice(0, 300), tags: r.tags, created_at: r.created_at }))
+  const memories: MemoryRef[] = (rows ?? []).map((r) => {
+    const meta = r.metadata as { imageDescription?: string } | null
+    // If the memory has an image description, include it in the body so the AI can answer questions about it.
+    const imageDesc = meta?.imageDescription?.trim()
+    const body = imageDesc ? `${r.body || ''}\n[Image content: ${imageDesc}]` : (r.body || '')
+    return { id: r.id, title: r.title || 'Untitled', body: body.slice(0, 500), tags: r.tags, created_at: r.created_at }
+  })
 
   let contextBlock = ''
   if (memories.length > 0) {

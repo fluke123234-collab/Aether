@@ -9,6 +9,11 @@ export type MemoryMetadata = {
   title?: string
   summary?: string
   tags?: string[]
+  type?: string
+  connections?: string[]
+  imageDescription?: string
+  imageData?: string
+  audioData?: string
 } | null
 
 export type MemoryRow = {
