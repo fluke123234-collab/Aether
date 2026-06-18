@@ -13,7 +13,6 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { analyzeMemoryText } from '@/lib/gemini'
@@ -101,109 +100,92 @@ export async function POST(req: NextRequest) {
   const memoryId = data.id as string
   const insertedAt = Date.now()
 
-  // ── Step 4: background enrichment, AFTER the response is sent ──
+  // ── Step 2: do enrichment SYNCHRONOUSLY (after() may not run on Vercel) ──
   // Run image analysis + text enrichment IN PARALLEL for speed.
-  after(async () => {
-    // Start both tasks simultaneously.
-    const imagePromise = (hasImage && typeof body.image === 'string')
-      ? analyzeImage(body.image).catch(() => '')
-      : Promise.resolve('')
+  const imagePromise = (hasImage && typeof body.image === 'string')
+    ? analyzeImage(body.image).catch(() => '')
+    : Promise.resolve('')
 
-    const textForEnrichment = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
-    const enrichmentPromise = analyzeMemoryText(textForEnrichment)
+  const textForEnrichment = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
+  const enrichmentPromise = analyzeMemoryText(textForEnrichment)
 
-    // Wait for both in parallel.
-    const [imageDescription, aiResponseString] = await Promise.all([
-      imagePromise,
-      enrichmentPromise,
-    ])
+  // Wait for both in parallel (max 5s each).
+  const [imageDescription, aiResponseString] = await Promise.all([
+    imagePromise,
+    enrichmentPromise,
+  ])
 
-    // If we got an image description, re-enrich with the full context.
-    let finalAiResponse = aiResponseString
-    if (imageDescription) {
-      const fullText = [content, `[Image content: ${imageDescription}]`].filter(Boolean).join('\n\n')
-      finalAiResponse = await analyzeMemoryText(fullText)
+  // If we got an image description, re-enrich with the full context.
+  let finalAiResponse = aiResponseString
+  if (imageDescription) {
+    const fullText = [content, `[Image content: ${imageDescription}]`].filter(Boolean).join('\n\n')
+    finalAiResponse = await analyzeMemoryText(fullText)
+  }
+
+  logger.info('AI enrichment output:', finalAiResponse)
+
+  // Parse and apply the enrichment.
+  try {
+    const aiData = JSON.parse(finalAiResponse) as {
+      title?: unknown
+      summary?: unknown
+      tags?: unknown
     }
 
-    logger.info('AI enrichment output:', finalAiResponse)
+    const title =
+      typeof aiData.title === 'string' && aiData.title.trim()
+        ? aiData.title.trim().slice(0, 80)
+        : 'Untitled Thought'
+    const summary =
+      typeof aiData.summary === 'string' ? aiData.summary.trim().slice(0, 280) : ''
+    const tags: string[] = Array.isArray(aiData.tags)
+      ? aiData.tags
+          .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+          .map((t) => t.trim())
+          .slice(0, 3)
+      : []
 
-    try {
-      const aiData = JSON.parse(finalAiResponse) as {
-        title?: unknown
-        summary?: unknown
-        tags?: unknown
-      }
+    const memoryType = classifyMemoryType(content || finalContent)
+    const allContent = [content, imageDescription].filter(Boolean).join(' ')
+    const searchKeywords = extractKeywords(allContent, tags)
 
-      const title =
-        typeof aiData.title === 'string' && aiData.title.trim()
-          ? aiData.title.trim().slice(0, 80)
-          : 'Untitled Thought'
-      const summary =
-        typeof aiData.summary === 'string' ? aiData.summary.trim().slice(0, 280) : ''
-      const tags: string[] = Array.isArray(aiData.tags)
-        ? aiData.tags
-            .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
-            .map((t) => t.trim())
-            .slice(0, 3)
-        : []
-
-      // Auto-classify the memory type (life area) — instant, no API call.
-      const memoryType = classifyMemoryType(content || finalContent)
-
-      // Extract hidden search keywords from ALL content (text + image desc).
-      const allContent = [content, imageDescription].filter(Boolean).join(' ')
-      const searchKeywords = extractKeywords(allContent, tags)
-
-      // 3. Update the row with enriched data — preserve image + audio data.
-      const metadataObj: Record<string, unknown> = {
-        title, summary, tags, type: memoryType,
-        imageDescription: imageDescription || undefined,
-        searchKeywords, // Hidden keywords for AI search — invisible to the user
-      }
-      // Preserve the original image data so the card can display it.
-      if (hasImage && typeof body.image === 'string') {
-        metadataObj.imageData = body.image
-      }
-      // Preserve the original audio data so the card can play it back.
-      if (hasAudio && typeof body.audio === 'string') {
-        metadataObj.audioData = body.audio
-      }
-
-      const { error } = await userClient
-        .from('memories')
-        .update({
-          metadata: metadataObj,
-          title,
-          summary,
-          tags,
-          category: memoryType,
-          processing: false,
-        })
-        .eq('id', memoryId)
-
-      if (error) {
-        logger.error('SUPABASE UPDATE ERROR:', error.message)
-        await userClient
-          .from('memories')
-          .update({ processing: false })
-          .eq('id', memoryId)
-          .then(() => undefined, () => undefined)
-        return
-      }
-
-      const elapsed = Date.now() - insertedAt
-      logger.info(`SUCCESS: Memory metadata synced. (${memoryId} in ${elapsed}ms)`)
-    } catch (parseError) {
-      logger.error('CRITICAL CRASH: Failed to parse AI response. Raw:', aiResponseString, parseError instanceof Error ? parseError.message : parseError)
-      await userClient
-        .from('memories')
-        .update({ processing: false })
-        .eq('id', memoryId)
-        .then(() => undefined, () => undefined)
+    const metadataObj: Record<string, unknown> = {
+      title, summary, tags, type: memoryType,
+      imageDescription: imageDescription || undefined,
+      searchKeywords,
     }
-  })
+    if (hasImage && typeof body.image === 'string') metadataObj.imageData = body.image
+    if (hasAudio && typeof body.audio === 'string') metadataObj.audioData = body.audio
 
-  // ── Step 3: immediate response ──
+    // Update the row with enriched data.
+    await userClient
+      .from('memories')
+      .update({
+        metadata: metadataObj,
+        title,
+        summary,
+        tags,
+        category: memoryType,
+        processing: false,
+      })
+      .eq('id', memoryId)
+
+    const elapsed = Date.now() - insertedAt
+    logger.info(`SUCCESS: Memory enriched in ${elapsed}ms`)
+
+    // Return the enriched memory directly — no need for client refetch.
+    return NextResponse.json({ success: true, id: memoryId, enriched: true })
+  } catch (parseError) {
+    logger.error('Enrichment parse failed:', parseError instanceof Error ? parseError.message : parseError)
+    // Mark as not processing so it doesn't hang.
+    await userClient
+      .from('memories')
+      .update({ processing: false })
+      .eq('id', memoryId)
+      .then(() => undefined, () => undefined)
+  }
+
+  // ── Step 3: response ──
   return NextResponse.json({ success: true, id: memoryId })
 }
 
