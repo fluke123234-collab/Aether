@@ -205,79 +205,96 @@ function HeroGreeting() {
 
 function FloatingCapsule({
   onCapture,
+  onCaptureWithImage,
 }: {
   onCapture: (text: string) => void
+  onCaptureWithImage: (text: string, image: string) => void
 }) {
   const [value, setValue] = useState('')
+  const [pendingImage, setPendingImage] = useState<string | null>(null)
+  const { listening, supported, start, stop } = useVoiceCapture()
 
-  // Snappy frontend optimism — but the guard intercepts first: a signed-out
-  // user never reaches the capture flow; the auth modal pops instantly instead.
   const handleSubmit = () => {
     const text = value.trim()
-    if (!text) return
+    if (!text && !pendingImage) return
     ensureAuthenticated(() => {
+      if (pendingImage) {
+        onCaptureWithImage(text, pendingImage)
+      } else {
+        onCapture(text)
+      }
       setValue('')
-      onCapture(text)
+      setPendingImage(null)
+    })
+  }
+
+  const handleVoice = () => {
+    ensureAuthenticated(() => {
+      if (listening) { stop(); return }
+      if (!supported) {
+        toast('Voice capture needs Chrome or Safari.', { description: 'Your browser does not support speech recognition.' })
+        return
+      }
+      const ok = start((text) => setValue(text))
+      if (ok) toast('Listening…', { description: 'Speak — Aether is transcribing.' })
+    })
+  }
+
+  const handleImagePick = () => {
+    ensureAuthenticated(() => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'image/*'
+      input.style.display = 'none'
+      input.onchange = () => {
+        const file = input.files?.[0]
+        if (!file) return
+        if (file.size > 4 * 1024 * 1024) {
+          toast.error('Image too large.', { description: 'Please pick an image under 4MB.' })
+          return
+        }
+        const reader = new FileReader()
+        reader.onload = () => {
+          setPendingImage(reader.result as string)
+          toast('Image attached.', { description: 'Add a note (optional) and press send.' })
+        }
+        reader.readAsDataURL(file)
+        input.remove()
+      }
+      document.body.appendChild(input)
+      input.click()
     })
   }
 
   return (
     <div className="fixed bottom-5 left-1/2 z-40 w-[calc(100%-2.5rem)] max-w-2xl -translate-x-1/2 animate-rise">
+      {pendingImage && (
+        <div className="mb-2 flex items-center gap-2 rounded-2xl border border-zinc-100 bg-white p-2 shadow-[0_4px_20px_0_rgba(0,0,0,0.04)]">
+          <img src={pendingImage} alt="Pending capture" className="h-12 w-12 rounded-lg object-cover" />
+          <span className="flex-1 text-xs text-zinc-500">Image ready to capture</span>
+          <button aria-label="Remove image" onClick={() => setPendingImage(null)} className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-all duration-200 hover:bg-rose-50 hover:text-rose-500 active:scale-95">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <div className="group flex items-center gap-1 rounded-full border border-zinc-100 bg-white p-1.5 pl-6 shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-100">
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              handleSubmit()
-            }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
           }}
           placeholder="Capture a thought, or ask Aether…"
           className="h-12 flex-1 bg-transparent text-[15px] text-zinc-800 placeholder:text-zinc-500 focus:outline-none focus:ring-0"
         />
-
-        {/* Micro-action triggers */}
         <div className="flex items-center gap-0.5">
-          <CapsuleAction
-            icon={ImageIcon}
-            label="Attach image"
-            onClick={() =>
-              ensureAuthenticated(() =>
-                toast('Image attach is coming soon.', {
-                  description: 'This phase focuses on the guard.',
-                })
-              )
-            }
-          />
-          <CapsuleAction
-            icon={Link2}
-            label="Attach link"
-            onClick={() =>
-              ensureAuthenticated(() =>
-                toast('Link attach is coming soon.', {
-                  description: 'This phase focuses on the guard.',
-                })
-              )
-            }
-          />
-          <CapsuleAction
-            icon={Mic}
-            label="Voice capture"
-            onClick={() =>
-              ensureAuthenticated(() =>
-                toast('Voice capture is coming soon.', {
-                  description: 'This phase focuses on the guard.',
-                })
-              )
-            }
-          />
-
-          {/* Send */}
+          <CapsuleAction icon={ImageIcon} label="Attach image" onClick={handleImagePick} active={!!pendingImage} />
+          <CapsuleAction icon={Link2} label="Attach link" onClick={() => ensureAuthenticated(() => toast('Link attach is coming soon.'))} />
+          <CapsuleAction icon={Mic} label={listening ? 'Stop listening' : 'Voice capture'} onClick={handleVoice} active={listening} />
           <button
             aria-label="Capture thought"
             onClick={handleSubmit}
-            disabled={!value.trim()}
+            disabled={!value.trim() && !pendingImage}
             className="ml-1 flex h-11 w-11 items-center justify-center rounded-full bg-zinc-900 text-white transition-all duration-300 hover:bg-purple-600 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:scale-100"
           >
             <ArrowUp className="h-[18px] w-[18px]" />
@@ -292,16 +309,20 @@ function CapsuleAction({
   icon: Icon,
   label,
   onClick,
+  active = false,
 }: {
   icon: LucideIcon
   label: string
   onClick?: () => void
+  active?: boolean
 }) {
   return (
     <button
       aria-label={label}
       onClick={onClick}
-      className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 ease-out hover:bg-purple-50/80 hover:text-purple-600 scale-100 hover:scale-105 active:scale-95"
+      className={`flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 ease-out hover:scale-105 active:scale-95 ${
+        active ? 'bg-purple-100 text-purple-600 animate-pulse' : 'text-zinc-400 hover:bg-purple-50/80 hover:text-purple-600'
+      }`}
     >
       <Icon className="h-[18px] w-[18px]" />
     </button>
@@ -695,43 +716,90 @@ export default function Home() {
 
       void (async () => {
         try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (!session?.user) {
+            setMemories((prev) => prev.filter((m) => m.id !== tempId))
+            toast.error('Please sign in to capture thoughts.')
+            return
+          }
           const res = await fetch('/api/capture', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: trimmed, user_id: null }),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ content: trimmed }),
           })
-          const json = (await res.json()) as {
-            success?: boolean
-            id?: string
-            error?: string
-          }
+          const json = (await res.json()) as { success?: boolean; id?: string; error?: string }
           if (!res.ok || !json.success) {
-            throw new Error(json.error || 'capture_failed')
+            if (res.status === 401) throw new Error('Your session has expired — please sign in again.')
+            throw new Error(json.error || 'Could not capture that thought.')
           }
-
-          // Swap the temp id for the real DB id (still processing). The card
-          // is in its loading state both before and after, so this is invisible.
           const realId = json.id as string
-          setMemories((prev) =>
-            prev.map((m) => (m.id === tempId ? { ...m, id: realId } : m))
-          )
-
-          toast.success('Captured.', {
-            description: 'Aether is refining it in the background.',
-          })
-
-          // Pick up the enriched row once the background Gemini call resolves.
+          setMemories((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: realId, user_id: session.user.id } : m)))
+          toast.success('Captured.', { description: 'Aether is refining it in the background.' })
           setTimeout(() => void refetch(), 3500)
           setTimeout(() => void refetch(), 8000)
         } catch (err) {
           setMemories((prev) => prev.filter((m) => m.id !== tempId))
-          toast.error('Could not capture that thought.', {
-            description: 'The sanctuary is not reachable yet.',
+          if (err instanceof TypeError) {
+            toast.error('Could not capture that thought.', { description: 'The sanctuary is not reachable yet.' })
+          } else {
+            toast.error(err instanceof Error ? err.message : 'Could not capture that thought.')
+          }
+          logger.warn('Aether · capture failed:', err instanceof Error ? err.message : err)
+        }
+      })()
+    },
+    [refetch]
+  )
+
+  // Capture with an image — sends the image base64 to the server, which
+  // analyzes it with the VLM and enriches the memory with its content.
+  const addMemoryWithImage = useCallback(
+    (text: string, image: string) => {
+      const tempId = `temp-${crypto.randomUUID()}`
+      const optimistic: MemoryRow = {
+        id: tempId,
+        title: 'Capturing image…',
+        body: text || 'Image capture',
+        summary: null,
+        category: 'image',
+        tags: ['capture'],
+        processing: true,
+        user_id: null,
+        metadata: null,
+        created_at: new Date().toISOString(),
+      }
+      setMemories((prev) => [optimistic, ...prev])
+
+      void (async () => {
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (!session?.user) {
+            setMemories((prev) => prev.filter((m) => m.id !== tempId))
+            toast.error('Please sign in to capture thoughts.')
+            return
+          }
+          const res = await fetch('/api/capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ content: text, image }),
           })
-          logger.warn(
-            'Aether · capture failed:',
-            err instanceof Error ? err.message : err
-          )
+          const json = (await res.json()) as { success?: boolean; id?: string; error?: string }
+          if (!res.ok || !json.success) {
+            throw new Error(json.error || 'Could not capture that image.')
+          }
+          const realId = json.id as string
+          setMemories((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: realId, user_id: session.user.id } : m)))
+          toast.success('Image captured.', { description: 'Aether is reading it in the background.' })
+          setTimeout(() => void refetch(), 5000)
+          setTimeout(() => void refetch(), 10000)
+        } catch (err) {
+          setMemories((prev) => prev.filter((m) => m.id !== tempId))
+          if (err instanceof TypeError) {
+            toast.error('Could not capture that image.', { description: 'The sanctuary is not reachable yet.' })
+          } else {
+            toast.error(err instanceof Error ? err.message : 'Could not capture that image.')
+          }
+          logger.warn('Aether · image capture failed:', err instanceof Error ? err.message : err)
         }
       })()
     },
@@ -788,7 +856,7 @@ export default function Home() {
       <Footer />
 
       {/* The floating capsule tray — fixed at the base of the viewport */}
-      <FloatingCapsule onCapture={addMemory} />
+      <FloatingCapsule onCapture={addMemory} onCaptureWithImage={addMemoryWithImage} />
 
       {/* Phase 4 — the global security guard's premium interceptor */}
       <AuthModal />
