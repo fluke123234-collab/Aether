@@ -219,38 +219,36 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ success: true, id: memoryId })
 }
 
-/* ── Analyze an image via the Z.ai vision API (VLM) ── */
+/* ── Analyze an image via the z-ai-web-dev-sdk VLM (createVision) ── */
 async function analyzeImage(imageDataUrl: string): Promise<string> {
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${ZAI_API_KEY}`,
-      'X-Z-AI-From': 'Z',
-    }
-    if (process.env.ZAI_CHAT_ID) headers['X-Chat-Id'] = process.env.ZAI_CHAT_ID
-    if (process.env.ZAI_USER_ID) headers['X-User-Id'] = process.env.ZAI_USER_ID
-    if (process.env.ZAI_TOKEN) headers['X-Token'] = process.env.ZAI_TOKEN
+  const VLM_PROMPT = `Analyze this image with extreme detail and accuracy. This is critical — be thorough.
 
-    const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: 'Analyze this image with extreme detail and accuracy. This is critical — be thorough.\n\n1. EXTRACT ALL TEXT: Every word, number, price, label, spec, title, heading visible in the image. Transcribe verbatim, preserving exact numbers and prices.\n\n2. DESCRIBE CONTENT: What is shown? Products, parts, documents, receipts, screenshots, diagrams? List each item with its details (name, price, specs, quantities).\n\n3. SUMMARIZE: One sentence summary of what this image contains.\n\nOutput plain text, no JSON. Be exhaustive — every detail matters. If there are prices, list them. If there are part names, list them. If there are specs, list them.' },
-              { type: 'image_url', image_url: { url: imageDataUrl } },
-            ],
-          },
-        ],
-        thinking: { type: 'disabled' },
-      }),
+1. EXTRACT ALL TEXT: Every word, number, price, label, spec, title, heading visible in the image. Transcribe verbatim, preserving exact numbers and prices.
+2. DESCRIBE CONTENT: What is shown? Products, parts, documents, receipts, screenshots, diagrams? List each item with its details (name, price, specs, quantities).
+3. SUMMARIZE: One sentence summary of what this image contains.
+
+Output plain text, no JSON. Be exhaustive — every detail matters. If there are prices, list them. If there are part names, list them. If there are specs, list them.`
+
+  // The Z.ai direct API doesn't support image_url content type — only the
+  // z-ai-web-dev-sdk's createVision method works for image analysis.
+  try {
+    const ZAI = (await import('z-ai-web-dev-sdk')).default
+    const zai = await ZAI.create()
+    const res = await zai.chat.completions.createVision({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: VLM_PROMPT },
+            { type: 'image_url', image_url: { url: imageDataUrl } },
+          ],
+        },
+      ],
+      thinking: { type: 'disabled' },
     })
-    if (!res.ok) return ''
-    const json = await res.json()
-    return json?.choices?.[0]?.message?.content ?? ''
-  } catch {
+    return res.choices[0]?.message?.content ?? ''
+  } catch (err) {
+    logger.warn('Aether · VLM (SDK) failed:', err instanceof Error ? err.message : err)
     return ''
   }
 }
