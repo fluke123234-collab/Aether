@@ -235,14 +235,32 @@ function FloatingCapsule({
       input.onchange = () => {
         const file = input.files?.[0]
         if (!file) return
-        if (file.size > 4 * 1024 * 1024) {
-          toast.error('Image too large.', { description: 'Please pick an image under 4MB.' })
+        if (file.size > 2 * 1024 * 1024) {
+          toast.error('Image too large.', { description: 'Please pick an image under 2MB.' })
           return
         }
+        // Compress the image to a reasonable size for storage.
+        const img = new Image()
         const reader = new FileReader()
         reader.onload = () => {
-          setPendingImage(reader.result as string)
-          toast('Image attached.', { description: 'Add a note (optional) and press send.' })
+          img.src = reader.result as string
+          img.onload = () => {
+            const canvas = document.createElement('canvas')
+            const maxDim = 1024
+            let { width, height } = img
+            if (width > maxDim || height > maxDim) {
+              if (width > height) { height = Math.round(height * maxDim / width); width = maxDim }
+              else { width = Math.round(width * maxDim / height); height = maxDim }
+            }
+            canvas.width = width
+            canvas.height = height
+            const ctx = canvas.getContext('2d')
+            if (!ctx) { setPendingImage(reader.result as string); return }
+            ctx.drawImage(img, 0, 0, width, height)
+            const compressed = canvas.toDataURL('image/jpeg', 0.8)
+            setPendingImage(compressed)
+            toast('Image attached.', { description: 'Add a note (optional) and press send.' })
+          }
         }
         reader.readAsDataURL(file)
         input.remove()
@@ -509,9 +527,12 @@ function MemoryCard({
               <button aria-label="Hide image" onClick={() => setShowImage(false)} className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white transition-all hover:bg-black/70 active:scale-95"><X className="h-3.5 w-3.5" /></button>
             </div>
           ) : (
-            <button onClick={() => setShowImage(true)} className="flex w-full items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-2 transition-all duration-300 hover:border-zinc-200 hover:bg-zinc-50 active:scale-[0.98]">
-              <img src={imageData} alt="" className="h-12 w-12 rounded-lg object-cover" />
-              <span className="flex-1 text-left text-xs text-zinc-500">View original image</span>
+            <button onClick={() => setShowImage(true)} className="flex w-full items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-2 transition-all duration-300 hover:border-purple-200 hover:bg-purple-50/40 active:scale-[0.98]">
+              <img src={imageData} alt="Memory image" className="h-14 w-14 rounded-lg object-cover" />
+              <div className="flex-1 text-left">
+                <p className="text-xs font-medium text-zinc-700">View original image</p>
+                <p className="text-[10px] text-zinc-400">Click to expand</p>
+              </div>
               <ImageIcon className="h-4 w-4 text-zinc-400" />
             </button>
           )}
