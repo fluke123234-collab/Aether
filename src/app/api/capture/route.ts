@@ -1,14 +1,20 @@
 /**
- * Aether · Phase 3 — Non-blocking capture endpoint
+ * Aether · Non-blocking capture endpoint
  * ------------------------------------------------------------
- *  Step 1: Instantly insert the raw memory with placeholder metadata.
- *  Step 2: Return { success: true, id } immediately (~200ms feel).
- *  Step 3: After the response drops, run the single consolidated
- *          Gemini analysis and silently UPDATE the row.
+ *  Step 1: Verify the Supabase session server-side (Bearer token).
+ *          If no valid session → 401, insert nothing.
+ *  Step 2: Instantly insert the raw memory with the verified user_id.
+ *  Step 3: Return { success: true, id } immediately (~200ms feel).
+ *  Step 4: After the response drops, run the AI analysis + image VLM
+ *          and silently UPDATE the row.
+ *
+ *  Never trusts a client-sent user_id. Uses a user-authenticated
+ *  Supabase client so RLS (auth.uid() = user_id) passes.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { after } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { analyzeMemoryText } from '@/lib/gemini'
 import { logger } from '@/lib/logger'
@@ -16,37 +22,60 @@ import { logger } from '@/lib/logger'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const ZAI_API_KEY = process.env.ZAI_API_KEY || ''
+const ZAI_BASE_URL = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1'
+
 export async function POST(req: NextRequest) {
-  let body: { content?: unknown; user_id?: unknown }
+  let body: { content?: unknown; image?: unknown }
 
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json(
-      { success: false, error: 'invalid_json' },
-      { status: 400 }
-    )
+    return NextResponse.json({ success: false, error: 'invalid_json' }, { status: 400 })
   }
 
   const content = typeof body.content === 'string' ? body.content.trim() : ''
-  const userId = typeof body.user_id === 'string' && body.user_id ? body.user_id : null
+  const hasImage = typeof body.image === 'string' && body.image.startsWith('data:image/')
 
-  if (!content) {
-    return NextResponse.json(
-      { success: false, error: 'empty_content' },
-      { status: 400 }
-    )
+  if (!content && !hasImage) {
+    return NextResponse.json({ success: false, error: 'empty_content' }, { status: 400 })
   }
 
-  // ── Step 1: instant insert with placeholder metadata ──
-  const { data, error } = await supabase
+  // ── Verify the Supabase session server-side ──
+  const authHeader = req.headers.get('authorization')
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
+
+  if (!token) {
+    return NextResponse.json({ success: false, error: 'unauthorized' }, { status: 401 })
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.getUser(token)
+  if (authError || !authData.user) {
+    return NextResponse.json({ success: false, error: 'unauthorized' }, { status: 401 })
+  }
+
+  const userId = authData.user.id
+
+  // ── User-authenticated client so RLS passes ──
+  const userClient = createClient(
+    SUPABASE_URL || 'https://placeholder.supabase.co',
+    SUPABASE_ANON_KEY || 'placeholder-anon-key',
+    { global: { headers: { Authorization: `Bearer ${token}` } } }
+  )
+
+  // ── Step 1: instant insert with placeholder metadata + verified user_id ──
+  const finalContent = content || (hasImage ? 'Image capture' : '')
+  const { data, error } = await userClient
     .from('memories')
     .insert([
       {
         title: 'Capturing thought…',
-        body: content,
+        body: finalContent,
+        content: finalContent,
         summary: '',
-        category: 'idea',
+        category: hasImage ? 'image' : 'note',
         tags: ['capture'],
         processing: true,
         user_id: userId,
@@ -67,23 +96,35 @@ export async function POST(req: NextRequest) {
   const memoryId = data.id as string
   const insertedAt = Date.now()
 
-  // ── Step 3: background enrichment, AFTER the response is sent ──
+  // ── Step 4: background enrichment, AFTER the response is sent ──
   after(async () => {
-    // 1. Await the consolidated Gemini analysis payload (a JSON string).
-    const aiResponseString = await analyzeMemoryText(content)
+    // If an image was attached, analyze it via VLM first.
+    let imageDescription = ''
+    if (hasImage && typeof body.image === 'string') {
+      try {
+        imageDescription = await analyzeImage(body.image)
+      } catch (err) {
+        logger.warn('Aether · image analysis failed:', err instanceof Error ? err.message : err)
+      }
+    }
 
-    // AUDIT: trace the raw payload before parsing so failures are visible.
+    // The text the AI enriches: the user's note + the image description.
+    const enrichmentText = [content, imageDescription ? `[Image content: ${imageDescription}]` : '']
+      .filter(Boolean)
+      .join('\n\n')
+
+    // 1. Await the consolidated AI analysis payload (a JSON string).
+    const aiResponseString = await analyzeMemoryText(enrichmentText || imageDescription || finalContent)
+
     logger.info('Gemini Raw Output:', aiResponseString)
 
     try {
-      // 2. Safely parse the response string into a clean object.
       const aiData = JSON.parse(aiResponseString) as {
         title?: unknown
         summary?: unknown
         tags?: unknown
       }
 
-      // Normalise — never let undefined fields overwrite the row.
       const title =
         typeof aiData.title === 'string' && aiData.title.trim()
           ? aiData.title.trim().slice(0, 80)
@@ -97,25 +138,53 @@ export async function POST(req: NextRequest) {
             .slice(0, 3)
         : []
 
-      // 3. Update the exact database row matching the memory ID.
-      //    Map the AI payload into the `metadata` JSONB column (the canonical
-      //    store for AI-derived fields) AND mirror onto the top-level columns
-      //    so the existing feed/cards keep rendering without a schema migration.
-      const { error } = await supabase
+      // Auto-classify the memory type (life area).
+      const memoryType = classifyMemoryType(enrichmentText || content)
+
+      // Smart connections: find related past memories.
+      let connections: string[] = []
+      try {
+        const { data: pastMemories } = await userClient
+          .from('memories')
+          .select('id, title, body, tags')
+          .eq('user_id', userId)
+          .neq('id', memoryId)
+          .order('created_at', { ascending: false })
+          .limit(30)
+
+        if (pastMemories && pastMemories.length > 0) {
+          const newWords = (enrichmentText || content).toLowerCase().split(/\s+/).filter((w) => w.length > 4)
+          const newTags = tags.map((t) => t.toLowerCase())
+          connections = pastMemories
+            .filter((m) => {
+              const pastText = (m.title + ' ' + m.body + ' ' + (m.tags ?? []).join(' ')).toLowerCase()
+              const tagMatch = (m.tags ?? []).some((t) => newTags.includes(t.toLowerCase()))
+              const wordMatches = newWords.filter((w) => pastText.includes(w)).length
+              return tagMatch || wordMatches >= 2
+            })
+            .slice(0, 3)
+            .map((m) => m.id)
+        }
+      } catch {
+        // Non-critical.
+      }
+
+      // 3. Update the row with enriched data.
+      const { error } = await userClient
         .from('memories')
         .update({
-          metadata: { title, summary, tags },
+          metadata: { title, summary, tags, type: memoryType, connections, imageDescription: imageDescription || undefined },
           title,
           summary,
           tags,
+          category: memoryType,
           processing: false,
         })
         .eq('id', memoryId)
 
       if (error) {
         logger.error('SUPABASE UPDATE ERROR:', error.message)
-        // Never leave the row stuck "processing".
-        await supabase
+        await userClient
           .from('memories')
           .update({ processing: false })
           .eq('id', memoryId)
@@ -124,17 +193,10 @@ export async function POST(req: NextRequest) {
       }
 
       const elapsed = Date.now() - insertedAt
-      logger.info(
-        `SUCCESS: Memory metadata successfully synced to database. (${memoryId} in ${elapsed}ms)`
-      )
+      logger.info(`SUCCESS: Memory metadata synced. (${memoryId} in ${elapsed}ms)`)
     } catch (parseError) {
-      logger.error(
-        'CRITICAL CRASH: Failed to parse Gemini response string. Raw payload was:',
-        aiResponseString,
-        parseError instanceof Error ? parseError.message : parseError
-      )
-      // Resolve the row so it never hangs in "processing".
-      await supabase
+      logger.error('CRITICAL CRASH: Failed to parse AI response. Raw:', aiResponseString, parseError instanceof Error ? parseError.message : parseError)
+      await userClient
         .from('memories')
         .update({ processing: false })
         .eq('id', memoryId)
@@ -142,6 +204,55 @@ export async function POST(req: NextRequest) {
     }
   })
 
-  // ── Step 2: immediate response — the client settles instantly ──
+  // ── Step 3: immediate response ──
   return NextResponse.json({ success: true, id: memoryId })
+}
+
+/* ── Analyze an image via the Z.ai vision API (VLM) ── */
+async function analyzeImage(imageDataUrl: string): Promise<string> {
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${ZAI_API_KEY}`,
+      'X-Z-AI-From': 'Z',
+    }
+    if (process.env.ZAI_CHAT_ID) headers['X-Chat-Id'] = process.env.ZAI_CHAT_ID
+    if (process.env.ZAI_USER_ID) headers['X-User-Id'] = process.env.ZAI_USER_ID
+    if (process.env.ZAI_TOKEN) headers['X-Token'] = process.env.ZAI_TOKEN
+
+    const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Describe this image thoroughly. Extract ALL visible text verbatim. Then describe the key visual content. Plain text only.' },
+              { type: 'image_url', image_url: { url: imageDataUrl } },
+            ],
+          },
+        ],
+        thinking: { type: 'disabled' },
+      }),
+    })
+    if (!res.ok) return ''
+    const json = await res.json()
+    return json?.choices?.[0]?.message?.content ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/* ── Auto-classify a memory into a life area ── */
+function classifyMemoryType(text: string): string {
+  const t = text.toLowerCase()
+  if (/\b(work|job|career|office|meeting|project|deadline|client|boss|colleague|email|report|presentation|startup|company|business)\b/.test(t)) return 'work'
+  if (/\b(money|budget|dollar|cost|price|spend|spent|save|invest|stock|tax|rent|loan|debt|income|salary|pay|bill|bank|bought)\b/.test(t)) return 'money'
+  if (/\b(health|doctor|gym|workout|exercise|run|sleep|diet|eat|food|weight|sick|medicine|therapy|mental|anxiety|stress|tired)\b/.test(t)) return 'health'
+  if (/\b(idea|what if|concept|imagine|brainstorm|could be|might be|product|app|feature|design|build|create|invent)\b/.test(t)) return 'ideas'
+  if (/\b(family|friend|partner|wife|husband|girlfriend|boyfriend|mom|dad|mother|father|son|daughter|kid|relationship|love|date)\b/.test(t)) return 'relationships'
+  if (/\b(todo|to-do|task|need to|must|should|have to|don'?t forget|remember to|finish|complete|ship|fix|call|send|buy|schedule|book)\b/.test(t)) return 'task'
+  if (t.includes('image capture') || t.startsWith('[image content:')) return 'image'
+  return 'personal'
 }

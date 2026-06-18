@@ -80,13 +80,6 @@ function CategoryIcon({
   }
 }
 
-/* The recap block keeps its own display config (out of Phase 2 scope). */
-const recapStats = [
-  { label: 'captured', value: '12' },
-  { label: 'refined', value: '4' },
-  { label: 'recalled', value: '27' },
-]
-
 /* ──────────────────────────────────────────────────────────────
    The Signature Glow — fixed, behind everything, breathing.
    ────────────────────────────────────────────────────────────── */
@@ -113,10 +106,9 @@ function TheGlow() {
    The Minimalist Top Rail
    ────────────────────────────────────────────────────────────── */
 
-function TopRail() {
+function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenProfile: () => void }) {
   const user = useAuthStore((s) => s.user)
   const openModal = useAuthStore((s) => s.openModal)
-  const signOut = useAuthStore((s) => s.signOut)
 
   return (
     <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#FAFAFA]/70 border-b border-zinc-100/60">
@@ -129,46 +121,30 @@ function TopRail() {
           Aether
         </a>
 
-        {/* Omnipresent search — guarded on submit */}
-        <div className="ml-2 hidden flex-1 sm:block">
-          <label className="group relative flex items-center">
-            <Search className="pointer-events-none absolute left-4 h-[18px] w-[18px] text-zinc-400 transition-colors duration-300 group-focus-within:text-purple-500" />
-            <input
-              type="text"
-              placeholder="Search the sanctuary…"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  ensureAuthenticated(() =>
-                    toast('Searching your sanctuary…', { description: 'Aether is gathering matches.' })
-                  )
-                }
-              }}
-              className="h-10 w-full max-w-md rounded-full bg-white border border-zinc-100 pl-11 pr-16 text-sm text-zinc-700 placeholder:text-zinc-400 shadow-[inset_0_1px_2px_rgb(0,0,0,0.03)] focus:ring-0 focus:outline-none focus:border-zinc-100 focus:shadow-inner transition-all duration-300"
-            />
-            <kbd className="absolute right-3 hidden md:flex items-center gap-1 rounded-md border border-zinc-100 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">
-              ⌘K
-            </kbd>
-          </label>
-        </div>
+        {/* Ask Aether — the obvious search entry (desktop) */}
+        <button onClick={() => ensureAuthenticated(onOpenAsk)} className="group ml-2 hidden flex-1 sm:block">
+          <span className="group relative flex items-center">
+            <Search className="pointer-events-none absolute left-4 h-[18px] w-[18px] text-zinc-400 transition-colors duration-300 group-hover:text-purple-500" />
+            <span className="flex h-10 w-full max-w-md items-center rounded-full bg-white border border-zinc-100 pl-11 pr-16 text-sm text-zinc-400 shadow-[inset_0_1px_2px_rgb(0,0,0,0.03)] transition-all duration-300 group-hover:border-zinc-200 group-hover:shadow-inner">
+              Ask Aether anything…
+            </span>
+            <kbd className="absolute right-3 hidden md:flex items-center gap-1 rounded-md border border-zinc-100 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">⌘K</kbd>
+          </span>
+        </button>
 
-        {/* Spacer for mobile where search hides */}
+        {/* Mobile — compact search icon */}
+        <button onClick={() => ensureAuthenticated(onOpenAsk)} aria-label="Ask Aether" className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 hover:bg-zinc-100 hover:text-zinc-700 active:scale-95 sm:hidden">
+          <Search className="h-[18px] w-[18px]" />
+        </button>
+
+        {/* Spacer for mobile */}
         <div className="flex-1 sm:hidden" />
 
         {/* Account pill — reactive to session */}
         {user ? (
-          <div className="flex shrink-0 items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-indigo-500 text-xs font-semibold text-white shadow-[0_4px_16px_rgba(139,92,246,0.3)]">
-              {user.name.charAt(0).toUpperCase()}
-            </div>
-            <button
-              aria-label="Sign out"
-              onClick={signOut}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 hover:bg-zinc-100 hover:text-zinc-700 active:scale-95"
-            >
-              <LogOut className="h-[18px] w-[18px]" />
-            </button>
-          </div>
+          <button onClick={onOpenProfile} aria-label="Profile and settings" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-indigo-500 text-xs font-semibold text-white shadow-[0_4px_16px_rgba(139,92,246,0.3)] transition-all duration-300 hover:scale-105 active:scale-95">
+            {user.email.charAt(0).toUpperCase()}
+          </button>
         ) : (
           <button
             onClick={openModal}
@@ -343,11 +319,10 @@ function CapsuleAction({
    The Executive 24h Recap Block
    ────────────────────────────────────────────────────────────── */
 
-function RecapBlock() {
+function RecapBlock({ onReadRecap }: { onReadRecap: () => void }) {
   return (
     <section className="mx-auto w-full max-w-5xl px-5 animate-rise [animation-delay:240ms]">
       <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600 p-8 sm:p-12 shadow-[0_30px_80px_-20px_rgba(139,92,246,0.45)]">
-        {/* velvet sheen */}
         <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-32 -left-10 h-72 w-72 rounded-full bg-indigo-300/20 blur-3xl" />
 
@@ -362,24 +337,8 @@ function RecapBlock() {
           </h2>
 
           <div className="mt-9 flex flex-wrap items-end gap-8">
-            {recapStats.map((s) => (
-              <div key={s.label}>
-                <div className="font-display text-4xl text-white leading-none">
-                  {s.value}
-                </div>
-                <div className="mt-1.5 text-xs uppercase tracking-[0.18em] text-purple-200/80">
-                  {s.label}
-                </div>
-              </div>
-            ))}
             <button
-              onClick={() =>
-                ensureAuthenticated(() =>
-                  toast('Opening your 24h recap…', {
-                    description: 'Aether is distilling your day.',
-                  })
-                )
-              }
+              onClick={onReadRecap}
               className="group ml-auto inline-flex items-center gap-2 rounded-full bg-white/10 px-5 py-2.5 text-sm font-medium text-white backdrop-blur-sm transition-all duration-300 hover:bg-white hover:text-purple-700 active:scale-95"
             >
               Read the recap
@@ -397,19 +356,18 @@ function RecapBlock() {
    ────────────────────────────────────────────────────────────── */
 
 function MemoryFeed({
-  memories,
-  loading,
-  favorites,
-  onToggleFavorite,
-  activeFolder,
-  onClearFolder,
+  memories, loading, favorites, onToggleFavorite, onInsight, onDownloadPdf, onDelete, activeFolder, onClearFolder, highlightId,
 }: {
   memories: MemoryRow[]
   loading: boolean
   favorites: Set<string>
   onToggleFavorite: (id: string) => void
+  onInsight: (m: MemoryRow) => void
+  onDownloadPdf: (m: MemoryRow) => void
+  onDelete: (m: MemoryRow) => void
   activeFolder: string | null
   onClearFolder: () => void
+  highlightId: string | null
 }) {
   return (
     <section className="mx-auto w-full max-w-6xl px-5">
@@ -467,11 +425,14 @@ function MemoryFeed({
         /* Gallery masonry — cards of varying heights stack like a high-end gallery */
         <div className="columns-1 gap-5 sm:columns-2 lg:columns-3 [column-fill:_balance]">
           {memories.map((m) => (
-            <div key={m.id} className="mb-5 break-inside-avoid">
+            <div key={m.id} id={`memory-${m.id}`} className={`mb-5 break-inside-avoid rounded-2xl transition-all duration-700 ${highlightId === m.id ? 'ring-2 ring-purple-400 ring-offset-2 ring-offset-[#FAFAFA]' : ''}`}>
               <MemoryCard
                 memory={m}
                 favorited={favorites.has(m.id)}
                 onToggleFavorite={onToggleFavorite}
+                onInsight={onInsight}
+                onDownloadPdf={onDownloadPdf}
+                onDelete={onDelete}
               />
             </div>
           ))}
@@ -482,13 +443,14 @@ function MemoryFeed({
 }
 
 function MemoryCard({
-  memory,
-  favorited,
-  onToggleFavorite,
+  memory, favorited, onToggleFavorite, onInsight, onDownloadPdf, onDelete,
 }: {
   memory: MemoryRow
   favorited: boolean
   onToggleFavorite: (id: string) => void
+  onInsight: (m: MemoryRow) => void
+  onDownloadPdf: (m: MemoryRow) => void
+  onDelete: (m: MemoryRow) => void
 }) {
   // Prefer AI tags from the metadata JSONB; fall back to the top-level tags column.
   const pills =
@@ -654,48 +616,60 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [activeFolder, setActiveFolder] = useState<string | null>(null)
+  const [recapOpen, setRecapOpen] = useState(false)
+  const [insightOpen, setInsightOpen] = useState(false)
+  const [insightMemory, setInsightMemory] = useState<MemoryRow | null>(null)
+  const [askOpen, setAskOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  const user = useAuthStore((s) => s.user)
+  const userId = user?.id
 
+  // Restore the real Supabase session on mount and keep the auth store in sync.
   useEffect(() => {
-    // Rehydrate the persisted auth session (store uses skipHydration so the
-    // first render matches the server — no hydration mismatch).
-    void useAuthStore.persist.rehydrate()
+    initTheme()
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      useAuthStore.getState().setSession(session)
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      useAuthStore.getState().setSession(session)
+    })
+    return () => { sub.subscription.unsubscribe() }
+  }, [])
 
+  // Load only the current user's memories.
+  useEffect(() => {
     let active = true
     const load = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!active) return
+      if (!session?.user) { setMemories([]); setLoading(false); return }
       const { data, error } = await supabase
         .from('memories')
         .select('*')
+        .eq('user_id', session.user.id)
         .order('created_at', { ascending: false })
-
       if (!active) return
-
-      // Table missing / RLS blocked / empty — all resolve to a calm empty state.
-      if (error) {
-        logger.warn('Aether · could not load memories:', error.message)
-        setMemories([])
-      } else {
-        setMemories((data as MemoryRow[]) ?? [])
-      }
+      if (error) { logger.warn('Aether · could not load memories:', error.message); setMemories([]) }
+      else { setMemories((data as MemoryRow[]) ?? []) }
       setLoading(false)
     }
     load()
-    return () => {
-      active = false
-    }
-  }, [])
+    return () => { active = false }
+  }, [userId])
 
   // Silent re-fetch used to pick up background-enriched rows.
   const refetch = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) return
     const { data, error } = await supabase
       .from('memories')
       .select('*')
+      .eq('user_id', session.user.id)
       .order('created_at', { ascending: false })
-
     if (error || !data) return
     const rows = data as MemoryRow[]
     setMemories((prev) => {
-      // Preserve any still-pending optimistic entries (temp- ids);
-      // confirmed rows are refreshed from the DB (same id → smooth update).
       const pending = prev.filter((m) => m.id.startsWith('temp-'))
       return [...pending, ...rows]
     })
@@ -826,6 +800,34 @@ export default function Home() {
     })
   }, [])
 
+  const downloadPdf = useCallback(async (memory: MemoryRow) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) { toast.error('Please sign in to download.'); return }
+    try {
+      const res = await fetch('/api/pdf', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ id: memory.id }) })
+      if (!res.ok) throw new Error('PDF failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${(memory.title || 'aether-memory').replace(/[^a-z0-9]+/gi, '-').slice(0, 40).toLowerCase()}.pdf`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url)
+      toast.success('Downloaded.', { description: 'Your thought is saved as a PDF.' })
+    } catch { toast.error('Could not generate the PDF.') }
+  }, [])
+
+  const deleteMemory = useCallback(async (memory: MemoryRow) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) { toast.error('Please sign in to delete.'); return }
+    try {
+      const res = await fetch('/api/delete', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ id: memory.id }) })
+      const json = (await res.json()) as { success?: boolean; error?: string }
+      if (!res.ok || !json.success) throw new Error(json.error || 'Delete failed')
+      setMemories((prev) => prev.filter((m) => m.id !== memory.id))
+      toast.success('Memory removed.', { description: 'The thought has been let go.' })
+    } catch { toast.error('Could not delete that memory.') }
+  }, [])
+
   // Phase 5 — filter memories by the active folder tag (derived live from DB).
   // Reads tags from the metadata JSONB first, falling back to the top-level column.
   const visibleMemories = useMemo(
@@ -843,33 +845,36 @@ export default function Home() {
   return (
     <div className="relative flex min-h-screen flex-col">
       <TheGlow />
-      <TopRail />
+      <TopRail onOpenAsk={() => setAskOpen(true)} onOpenProfile={() => setProfileOpen(true)} />
 
       <main className="flex flex-1 flex-col gap-20 px-0 pb-40 pt-20 sm:pt-28">
         <HeroGreeting />
-        <RecapBlock />
-        <Collections
-          memories={memories}
-          activeFolder={activeFolder}
-          onSelectFolder={setActiveFolder}
-        />
+        <RecapBlock onReadRecap={() => ensureAuthenticated(() => setRecapOpen(true))} />
+        <Collections memories={memories} activeFolder={activeFolder} onSelectFolder={setActiveFolder} />
+        <Serendipity memories={memories} />
         <MemoryFeed
           memories={visibleMemories}
           loading={loading}
           favorites={favorites}
           onToggleFavorite={toggleFavorite}
+          onInsight={(m) => { setInsightMemory(m); setInsightOpen(true) }}
+          onDownloadPdf={downloadPdf}
+          onDelete={deleteMemory}
           activeFolder={activeFolder}
           onClearFolder={() => setActiveFolder(null)}
+          highlightId={highlightId}
         />
       </main>
 
       <Footer />
 
-      {/* The floating capsule tray — fixed at the base of the viewport */}
       <FloatingCapsule onCapture={addMemory} onCaptureWithImage={addMemoryWithImage} />
 
-      {/* Phase 4 — the global security guard's premium interceptor */}
       <AuthModal />
+      <RecapModal open={recapOpen} onClose={() => setRecapOpen(false)} />
+      <InsightModal open={insightOpen} memoryId={insightMemory?.id ?? null} memoryTitle={insightMemory?.title ?? ''} onClose={() => setInsightOpen(false)} />
+      <AskAetherModal open={askOpen} memories={memories} onClose={() => setAskOpen(false)} onFocusMemory={(id) => { setActiveFolder(null); setHighlightId(id); setTimeout(() => setHighlightId((c) => c === id ? null : c), 4000); setTimeout(() => { const el = document.getElementById(`memory-${id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100); }} />
+      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
 
       <SonnerToaster
         position="top-center"
