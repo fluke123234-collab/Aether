@@ -201,9 +201,11 @@ async function analyzeImage(imageDataUrl: string): Promise<string> {
 Output plain text, no JSON. Be exhaustive — every detail matters. If there are prices, list them. If there are part names, list them. If there are specs, list them.`
 
   try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default
-    // Pass config explicitly so it works on Vercel (no /etc/.z-ai-config).
-    const zai = await ZAI.create({
+    const ZAIModule = await import('z-ai-web-dev-sdk')
+    const ZAI = ZAIModule.default
+    // Construct directly — bypasses ZAI.create() which reads from a config
+    // file that doesn't exist on Vercel.
+    const zai = new ZAI({
       baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
       apiKey: process.env.ZAI_API_KEY || 'Z.ai',
       token: process.env.ZAI_TOKEN || '',

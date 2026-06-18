@@ -22,9 +22,11 @@ export async function POST(req: NextRequest) {
   if (!image || !image.startsWith('data:image/')) return NextResponse.json({ success: false, description: '', error: 'no_image' }, { status: 400 })
 
   try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default
-    // Pass config explicitly so it works on Vercel (no /etc/.z-ai-config).
-    const zai = await ZAI.create({
+    const ZAIModule = await import('z-ai-web-dev-sdk')
+    const ZAI = ZAIModule.default
+    // Construct directly — bypasses ZAI.create() which reads from a config
+    // file that doesn't exist on Vercel.
+    const zai = new ZAI({
       baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
       apiKey: process.env.ZAI_API_KEY || 'Z.ai',
       token: process.env.ZAI_TOKEN || '',
