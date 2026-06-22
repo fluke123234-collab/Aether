@@ -59,7 +59,7 @@ export function AskAetherModal({ open, memories, onClose, onFocusMemory }: { ope
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label="Ask Aether" className="fixed inset-0 z-[100] flex items-center justify-center p-5">
       <div aria-hidden onClick={onClose} className="absolute inset-0 bg-black/40 backdrop-blur-md" />
-      <div className="relative flex h-[80vh] max-h-[640px] w-full max-w-2xl animate-[aether-modal-in_220ms_cubic-bezier(0.16,1,0.3,1)] flex-col overflow-hidden rounded-[28px] border border-zinc-100 bg-white shadow-[0_40px_120px_-20px_rgba(0,0,0,0.35)]">
+      <div className="relative flex h-[80vh] max-h-[640px] w-full max-w-2xl animate-[aether-modal-in_220ms_cubic-bezier(0.16,1,0.3,1)] flex-col overflow-hidden rounded-[28px] border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] dark:bg-[#27272A]/90 dark:border dark:border-zinc-700/50 dark:backdrop-blur-md shadow-[0_40px_120px_-20px_rgba(0,0,0,0.35)]">
         <div className="relative h-16 shrink-0 bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600">
           <div className="absolute -bottom-6 left-1/2 h-20 w-20 -translate-x-1/2 rounded-full bg-white/20 blur-2xl" />
           <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 text-white"><Search className="h-4 w-4" /><span className="font-display text-lg tracking-tight">Ask Aether</span></div>
@@ -69,11 +69,11 @@ export function AskAetherModal({ open, memories, onClose, onFocusMemory }: { ope
           {turns.length === 0 && !loading ? (
             <div className="flex h-full flex-col items-center justify-center text-center">
               <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 text-purple-400"><Sparkles className="h-6 w-6" /></div>
-              <p className="font-display text-xl tracking-tight text-zinc-800">Ask about your thoughts.</p>
-              <p className="mt-2 max-w-sm text-sm leading-relaxed text-zinc-500">Aether will search your sanctuary, connect the threads, and talk back — citing the memories it found.</p>
+              <p className="font-display text-xl tracking-tight text-zinc-800 dark:text-zinc-200">Ask about your thoughts.</p>
+              <p className="mt-2 max-w-sm text-sm leading-relaxed text-zinc-500 dark:text-zinc-500">Aether will search your sanctuary, connect the threads, and talk back — citing the memories it found.</p>
               <div className="mt-6 flex flex-wrap justify-center gap-2">
                 {['What have I been thinking about lately?', 'Help me work through an idea', 'What patterns do you notice in my thoughts?'].map((s) => (
-                  <button key={s} onClick={() => { setInput(s); setTimeout(() => inputRef.current?.focus(), 0) }} className="rounded-full border border-zinc-100 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-600 transition-all duration-300 hover:border-zinc-200 hover:bg-zinc-50 active:scale-95">{s}</button>
+                  <button key={s} onClick={() => { setInput(s); setTimeout(() => inputRef.current?.focus(), 0) }} className="rounded-full border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] px-3.5 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 transition-all duration-300 hover:border-zinc-200 hover:bg-zinc-50 dark:bg-zinc-800/50 active:scale-95">{s}</button>
                 ))}
               </div>
             </div>
@@ -85,15 +85,15 @@ export function AskAetherModal({ open, memories, onClose, onFocusMemory }: { ope
                   <div className="flex gap-3">
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-50 text-purple-400"><Feather className="h-4 w-4" /></div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm leading-relaxed text-zinc-700 whitespace-pre-line">{turn.answer}</p>
+                      <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300 whitespace-pre-line">{turn.answer}</p>
                       {turn.memoryIds.length > 0 && (
                         <div className="mt-3">
-                          <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-400">Linked from your sanctuary</p>
+                          <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">Linked from your sanctuary</p>
                           <div className="flex flex-col gap-2">
                             {turn.memoryIds.map((id) => { const m = memoryById(id); if (!m) return null; return (
-                              <button key={id} onClick={() => { onFocusMemory(id); onClose() }} className="group flex items-center gap-3 rounded-xl border border-zinc-100 bg-white px-3 py-2 text-left transition-all duration-300 hover:border-purple-200 hover:bg-purple-50/40 active:scale-[0.98]">
-                                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-50 text-zinc-400 group-hover:bg-purple-100 group-hover:text-purple-500"><Sparkles className="h-3.5 w-3.5" /></div>
-                                <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-zinc-800">{m.title}</p><p className="truncate text-[11px] text-zinc-400">{formatDistanceToNow(new Date(m.created_at), { addSuffix: true })}</p></div>
+                              <button key={id} onClick={() => { onFocusMemory(id); onClose() }} className="group flex items-center gap-3 rounded-xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] px-3 py-2 text-left transition-all duration-300 hover:border-purple-200 hover:bg-purple-50/40 active:scale-[0.98]">
+                                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-50 dark:bg-zinc-800/50 text-zinc-400 dark:text-zinc-500 group-hover:bg-purple-100 group-hover:text-purple-500"><Sparkles className="h-3.5 w-3.5" /></div>
+                                <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-zinc-800 dark:text-zinc-200">{m.title}</p><p className="truncate text-[11px] text-zinc-400 dark:text-zinc-500">{formatDistanceToNow(new Date(m.created_at), { addSuffix: true })}</p></div>
                               </button>) })}
                           </div>
                         </div>
@@ -102,13 +102,13 @@ export function AskAetherModal({ open, memories, onClose, onFocusMemory }: { ope
                   </div>
                 </div>
               ))}
-              {loading && (<div className="flex gap-3"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-50 text-purple-400"><Loader2 className="h-4 w-4 animate-spin" /></div><p className="text-sm text-zinc-400">Searching your sanctuary…</p></div>)}
+              {loading && (<div className="flex gap-3"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-50 text-purple-400"><Loader2 className="h-4 w-4 animate-spin" /></div><p className="text-sm text-zinc-400 dark:text-zinc-500">Searching your sanctuary…</p></div>)}
             </div>
           )}
         </div>
-        <div className="shrink-0 border-t border-zinc-100 p-3">
-          <div className="flex items-center gap-1 rounded-full border border-zinc-100 bg-white p-1.5 pl-5 shadow-[0_4px_20px_0_rgba(0,0,0,0.02)] transition-all duration-300 focus-within:border-zinc-200">
-            <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask() } }} placeholder="Ask about your thoughts…" className="h-11 flex-1 bg-transparent text-sm text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-0" />
+        <div className="shrink-0 border-t border-zinc-100 dark:border-zinc-800 p-3">
+          <div className="flex items-center gap-1 rounded-full border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] p-1.5 pl-5 shadow-[0_4px_20px_0_rgba(0,0,0,0.02)] transition-all duration-300 focus-within:border-zinc-200">
+            <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask() } }} placeholder="Ask about your thoughts…" className="h-11 flex-1 bg-transparent text-sm text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 dark:text-zinc-500 focus:outline-none focus:ring-0" />
             <button aria-label="Ask" onClick={ask} disabled={!input.trim() || loading} className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-900 text-white transition-all duration-300 hover:bg-purple-600 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:scale-100"><ArrowUp className="h-[18px] w-[18px]" /></button>
           </div>
         </div>

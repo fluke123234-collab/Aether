@@ -23,8 +23,8 @@ function getInitialTheme(): Theme {
 
 function applyTheme(theme: Theme) {
   if (typeof document === 'undefined') return
-  if (theme === 'dark') document.body.classList.add('dark')
-  else document.body.classList.remove('dark')
+  if (theme === 'dark') document.documentElement.classList.add('dark')
+  else document.documentElement.classList.remove('dark')
 }
 
 export const useThemeStore = create<ThemeState>((set, get) => ({

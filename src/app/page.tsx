@@ -122,12 +122,12 @@ function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenPr
   const openModal = useAuthStore((s) => s.openModal)
 
   return (
-    <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#FAFAFA]/70 border-b border-zinc-100/60">
+    <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#FAFAFA]/70 dark:bg-[#09090B]/70 border-b border-zinc-100/60 dark:border-zinc-800/60">
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-5 sm:px-8">
         {/* Wordmark */}
         <a
           href="#"
-          className="font-display text-2xl tracking-tight text-zinc-900 leading-none select-none"
+          className="font-display text-2xl tracking-tight text-zinc-900 dark:text-zinc-50 leading-none select-none"
         >
           Aether
         </a>
@@ -135,16 +135,16 @@ function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenPr
         {/* Ask Aether — the obvious search entry (desktop) */}
         <button onClick={() => ensureAuthenticated(onOpenAsk)} className="group ml-2 hidden flex-1 sm:block">
           <span className="group relative flex items-center">
-            <Search className="pointer-events-none absolute left-4 h-[18px] w-[18px] text-zinc-400 transition-colors duration-300 group-hover:text-purple-500" />
-            <span className="flex h-10 w-full max-w-md items-center rounded-full bg-white border border-zinc-100 pl-11 pr-16 text-sm text-zinc-400 shadow-[inset_0_1px_2px_rgb(0,0,0,0.03)] transition-all duration-300 group-hover:border-zinc-200 group-hover:shadow-inner">
+            <Search className="pointer-events-none absolute left-4 h-[18px] w-[18px] text-zinc-400 dark:text-zinc-500 transition-colors duration-300 group-hover:text-purple-500" />
+            <span className="flex h-10 w-full max-w-md items-center rounded-full bg-white border border-zinc-100 dark:border-zinc-800 pl-11 pr-16 text-sm text-zinc-400 dark:text-zinc-500 shadow-[inset_0_1px_2px_rgb(0,0,0,0.03)] transition-all duration-300 group-hover:border-zinc-200 dark:hover:border-zinc-700 group-hover:shadow-inner">
               Ask Aether anything…
             </span>
-            <kbd className="absolute right-3 hidden md:flex items-center gap-1 rounded-md border border-zinc-100 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">⌘K</kbd>
+            <kbd className="absolute right-3 hidden md:flex items-center gap-1 rounded-md border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">⌘K</kbd>
           </span>
         </button>
 
         {/* Mobile — compact search icon */}
-        <button onClick={() => ensureAuthenticated(onOpenAsk)} aria-label="Ask Aether" className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 hover:bg-zinc-100 hover:text-zinc-700 active:scale-95 sm:hidden">
+        <button onClick={() => ensureAuthenticated(onOpenAsk)} aria-label="Ask Aether" className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 dark:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-300 dark:text-zinc-300 active:scale-95 sm:hidden">
           <Search className="h-[18px] w-[18px]" />
         </button>
 
@@ -159,7 +159,7 @@ function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenPr
         ) : (
           <button
             onClick={openModal}
-            className="shrink-0 rounded-full border border-transparent bg-zinc-900/0 px-5 py-2 text-sm font-medium text-zinc-600 transition-all duration-300 hover:bg-zinc-900 hover:text-white hover:shadow-[0_8px_30px_rgb(0,0,0,0.12)] active:scale-95"
+            className="shrink-0 rounded-full border border-transparent bg-zinc-900/0 px-5 py-2 text-sm font-medium text-zinc-600 dark:text-zinc-300 transition-all duration-300 hover:bg-zinc-900 hover:text-white hover:shadow-[0_8px_30px_rgb(0,0,0,0.12)] active:scale-95"
           >
             Sign in
           </button>
@@ -176,18 +176,18 @@ function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenPr
 function HeroGreeting() {
   return (
     <section className="mx-auto w-full max-w-3xl px-5 text-center">
-      <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-zinc-100 bg-white/60 px-4 py-1.5 text-xs font-medium text-zinc-500 backdrop-blur-sm animate-rise">
+      <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-zinc-100 dark:border-zinc-800 bg-white/60 px-4 py-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-500 backdrop-blur-sm animate-rise">
         <Sparkles className="h-[18px] w-[18px] text-purple-400" />
         A quieter place to think
       </p>
 
-      <h1 className="font-display text-5xl sm:text-6xl leading-[1.05] tracking-tight text-zinc-900 mb-4 animate-rise [animation-delay:60ms]">
+      <h1 className="font-display text-5xl sm:text-6xl leading-[1.05] tracking-tight text-zinc-900 dark:text-zinc-50 mb-4 animate-rise [animation-delay:60ms]">
         What is on your mind
         <br className="hidden sm:block" />
         <span className="italic text-purple-400/80"> today?</span>
       </h1>
 
-      <p className="mx-auto mb-2 max-w-md text-[15px] leading-relaxed text-zinc-500 animate-rise [animation-delay:120ms]">
+      <p className="mx-auto mb-2 max-w-md text-[15px] leading-relaxed text-zinc-500 dark:text-zinc-500 animate-rise [animation-delay:120ms]">
         Capture a thought, ask a question, or let Aether recall what mattered.
         Nothing here rushes you.
       </p>
@@ -288,15 +288,15 @@ function FloatingCapsule({
   return (
     <div className="fixed bottom-5 left-1/2 z-40 w-[calc(100%-2.5rem)] max-w-2xl -translate-x-1/2 animate-rise">
       {pendingImage && (
-        <div className="mb-2 flex items-center gap-2 rounded-2xl border border-zinc-100 bg-white p-2 shadow-[0_4px_20px_0_rgba(0,0,0,0.04)]">
+        <div className="mb-2 flex items-center gap-2 rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white p-2 shadow-[0_4px_20px_0_rgba(0,0,0,0.04)]">
           <img src={pendingImage} alt="Pending capture" className="h-12 w-12 rounded-lg object-cover" />
-          <span className="flex-1 text-xs text-zinc-500">Image ready to capture</span>
-          <button aria-label="Remove image" onClick={() => setPendingImage(null)} className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-all duration-200 hover:bg-rose-50 hover:text-rose-500 active:scale-95">
+          <span className="flex-1 text-xs text-zinc-500 dark:text-zinc-500 dark:text-zinc-500 dark:text-zinc-500">Image ready to capture</span>
+          <button aria-label="Remove image" onClick={() => setPendingImage(null)} className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-200 hover:bg-rose-50 hover:text-rose-500 active:scale-95">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
-      <div className="group flex items-center gap-1 rounded-full border border-zinc-100 bg-white p-1.5 pl-6 shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-100">
+      <div className="group flex items-center gap-1 rounded-full border border-zinc-100 dark:border-zinc-800 bg-white p-1.5 pl-6 shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-100 dark:border-zinc-800">
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -304,7 +304,7 @@ function FloatingCapsule({
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
           }}
           placeholder="Capture a thought, or ask Aether…"
-          className="h-12 flex-1 bg-transparent text-[15px] text-zinc-800 placeholder:text-zinc-500 focus:outline-none focus:ring-0"
+          className="h-12 flex-1 bg-transparent text-[15px] text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-500 dark:text-zinc-500 focus:outline-none focus:ring-0"
         />
         <div className="flex items-center gap-0.5">
           <CapsuleAction icon={ImageIcon} label="Attach image" onClick={handleImagePick} active={!!pendingImage} />
@@ -340,7 +340,7 @@ function CapsuleAction({
       aria-label={label}
       onClick={onClick}
       className={`flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 ease-out hover:scale-105 active:scale-95 ${
-        active ? 'bg-purple-100 text-purple-600 animate-pulse' : 'text-zinc-400 hover:bg-purple-50/80 hover:text-purple-600'
+        active ? 'bg-purple-100 text-purple-600 animate-pulse' : 'text-zinc-400 dark:text-zinc-500 hover:bg-purple-50/80 hover:text-purple-600'
       }`}
     >
       <Icon className="h-[18px] w-[18px]" />
@@ -406,7 +406,7 @@ function MemoryFeed({
     <section className="mx-auto w-full max-w-6xl px-5">
       <div className="mb-8 flex items-end justify-between">
         <div>
-          <h3 className="font-display text-2xl tracking-tight text-zinc-900">
+          <h3 className="font-display text-2xl tracking-tight text-zinc-900 dark:text-zinc-50 dark:text-zinc-50">
             {activeFolder ? (
               <span className="inline-flex items-center gap-2.5">
                 Recent memories
@@ -425,7 +425,7 @@ function MemoryFeed({
               'Recent memories'
             )}
           </h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-500 dark:text-zinc-500 dark:text-zinc-500">
             {activeFolder
               ? `Filtered to the “${activeFolder}” collection.`
               : 'A gentle stream of what you’ve kept.'}
@@ -439,7 +439,7 @@ function MemoryFeed({
               })
             )
           }
-          className="group inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 transition-colors duration-300 hover:text-zinc-900 active:scale-95"
+          className="group inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 dark:text-zinc-500 transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50 active:scale-95"
         >
           View all
           <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
@@ -503,9 +503,9 @@ function MemoryCard({
   }
 
   return (
-    <article className="group rounded-2xl border border-zinc-100/60 bg-white p-6 shadow-[0_4px_20px_0_rgba(0,0,0,0.015)] transition-all duration-500 hover:shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] hover:-translate-y-0.5 hover:border-zinc-200/60">
+    <article className="group rounded-2xl border border-zinc-100/60 bg-white p-6 shadow-[0_4px_20px_0_rgba(0,0,0,0.015)] transition-all duration-500 hover:shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] hover:-translate-y-0.5 hover:border-zinc-200 dark:hover:border-zinc-700/60 dark:border-zinc-700/60">
       <div className="mb-5 flex items-center justify-between">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-50 text-zinc-400 transition-all duration-300 group-hover:bg-purple-50 group-hover:text-purple-500">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-50 dark:bg-zinc-800/50 text-zinc-400 dark:text-zinc-500 transition-all duration-300 group-hover:bg-purple-50 group-hover:text-purple-500">
           {processing ? (
             <Loader2 className="h-[18px] w-[18px] animate-spin" />
           ) : (
@@ -523,22 +523,22 @@ function MemoryCard({
           >
             <Heart className={`h-4 w-4 ${favorited ? 'fill-current' : ''}`} />
           </button>
-          <span className="text-xs text-zinc-400">
+          <span className="text-xs text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">
             {processing ? 'Refining…' : timeAgo(memory.created_at)}
           </span>
         </div>
       </div>
 
-      <h4 className="mb-2 font-display text-lg font-normal tracking-tight text-zinc-900">
+      <h4 className="mb-2 font-display text-lg font-normal tracking-tight text-zinc-900 dark:text-zinc-50 dark:text-zinc-50">
         {memory.title}
       </h4>
 
       {/* Image — clean framed thumbnail, expands on click, shrinks on unhover */}
       {imageData && (
-        <div className="mb-4 overflow-hidden rounded-xl border border-zinc-100 transition-all duration-500">
+        <div className="mb-4 overflow-hidden rounded-xl border border-zinc-100 dark:border-zinc-800 transition-all duration-500">
           {showImage ? (
             <div className="relative">
-              <img src={imageData} alt={memory.title} className="w-full max-h-[400px] object-contain bg-zinc-50" />
+              <img src={imageData} alt={memory.title} className="w-full max-h-[400px] object-contain bg-zinc-50 dark:bg-zinc-800/50 dark:bg-zinc-800/50" />
               <button aria-label="Collapse image" onClick={() => setShowImage(false)} className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95">
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -560,7 +560,7 @@ function MemoryCard({
       {audioData && (
         <div className="mb-4">
           <audio ref={audioRef} src={audioData} onEnded={() => setPlaying(false)} className="hidden" />
-          <div className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/40 p-3 transition-all duration-300 hover:border-purple-200 hover:bg-purple-50/30">
+          <div className="flex items-center gap-3 rounded-xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50/40 dark:bg-zinc-800/30 p-3 transition-all duration-300 hover:border-purple-200 hover:bg-purple-50/30">
             <button
               onClick={toggleAudio}
               aria-label={playing ? 'Pause voice note' : 'Play voice note'}
@@ -589,12 +589,12 @@ function MemoryCard({
                 />
               ))}
             </div>
-            <span className="shrink-0 text-[10px] font-medium text-zinc-400">{playing ? 'Playing…' : 'Voice note'}</span>
+            <span className="shrink-0 text-[10px] font-medium text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">{playing ? 'Playing…' : 'Voice note'}</span>
           </div>
         </div>
       )}
 
-      <p className="mb-5 font-display text-[15px] leading-relaxed text-zinc-600">
+      <p className="mb-5 font-display text-[15px] leading-relaxed text-zinc-600 dark:text-zinc-300">
         {memory.body}
       </p>
 
@@ -602,10 +602,10 @@ function MemoryCard({
       {!processing && imageDesc && (
         <div className="mb-4 rounded-xl border border-zinc-100/80 bg-gradient-to-br from-zinc-50/80 to-purple-50/20 px-4 py-3">
           <div className="mb-1 flex items-center gap-1.5">
-            <ImageIcon className="h-3 w-3 text-zinc-400" />
-            <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">AI image analysis</span>
+            <ImageIcon className="h-3 w-3 text-zinc-400 dark:text-zinc-500 dark:text-zinc-500" />
+            <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">AI image analysis</span>
           </div>
-          <p className="text-xs leading-relaxed text-zinc-500">{imageDesc}</p>
+          <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-500 dark:text-zinc-500 dark:text-zinc-500">{imageDesc}</p>
         </div>
       )}
 
@@ -635,14 +635,14 @@ function MemoryCard({
           <button
             aria-label="AI insight"
             onClick={() => ensureAuthenticated(() => onInsight(memory))}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 hover:scale-110 hover:bg-purple-50 hover:text-purple-600 active:scale-95"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:scale-110 hover:bg-purple-50 hover:text-purple-600 active:scale-95"
           >
             <Sparkles className="h-4 w-4" />
           </button>
           <button
             aria-label="Download as PDF"
             onClick={() => ensureAuthenticated(() => onDownloadPdf(memory))}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 hover:scale-110 hover:bg-zinc-100 hover:text-zinc-700 active:scale-95"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:scale-110 hover:bg-zinc-100 dark:hover:bg-zinc-800 dark:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-300 dark:text-zinc-300 active:scale-95"
           >
             <Download className="h-4 w-4" />
           </button>
@@ -681,7 +681,7 @@ function DeleteButton({ memory, onDelete }: { memory: MemoryRow; onDelete: (m: M
     <button
       aria-label="Delete memory"
       onClick={() => ensureAuthenticated(() => setConfirmDelete(true))}
-      className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-all duration-300 hover:scale-110 hover:bg-rose-50 hover:text-rose-500 active:scale-95"
+      className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:scale-110 hover:bg-rose-50 hover:text-rose-500 active:scale-95"
     >
       <Trash2 className="h-4 w-4" />
     </button>
@@ -695,15 +695,15 @@ function SkeletonGrid() {
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className="rounded-2xl border border-zinc-100/60 bg-white p-6 shadow-sm"
+          className="rounded-2xl border border-zinc-100/60 bg-white dark:bg-[#18181B] p-6 shadow-sm dark:border dark:border-zinc-800/40"
         >
           <div className="mb-5 flex items-center justify-between">
-            <div className="h-10 w-10 rounded-full bg-zinc-100 animate-pulse" />
-            <div className="h-3 w-12 rounded-full bg-zinc-100 animate-pulse" />
+            <div className="h-10 w-10 rounded-full bg-zinc-100 dark:bg-zinc-800 animate-pulse" />
+            <div className="h-3 w-12 rounded-full bg-zinc-100 dark:bg-zinc-800 animate-pulse" />
           </div>
-          <div className="mb-2 h-4 w-3/4 rounded-full bg-zinc-100 animate-pulse" />
-          <div className="mb-5 h-3 w-full rounded-full bg-zinc-100 animate-pulse" />
-          <div className="h-3 w-2/3 rounded-full bg-zinc-100 animate-pulse" />
+          <div className="mb-2 h-4 w-3/4 rounded-full bg-zinc-100 dark:bg-zinc-800 animate-pulse" />
+          <div className="mb-5 h-3 w-full rounded-full bg-zinc-100 dark:bg-zinc-800 animate-pulse" />
+          <div className="h-3 w-2/3 rounded-full bg-zinc-100 dark:bg-zinc-800 animate-pulse" />
         </div>
       ))}
     </div>
@@ -717,10 +717,10 @@ function EmptyState() {
       <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 text-purple-300">
         <Feather className="h-6 w-6" />
       </div>
-      <p className="font-display text-xl tracking-tight text-zinc-700">
+      <p className="font-display text-xl tracking-tight text-zinc-700 dark:text-zinc-300">
         Your digital sanctuary is clear.
       </p>
-      <p className="mt-2 text-sm text-zinc-400">
+      <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">
         Begin typing below to capture a thought.
       </p>
     </div>
@@ -737,14 +737,14 @@ function FilteredEmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200/70 bg-white/40 px-6 py-20 text-center">
-      <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-50 text-zinc-300">
+      <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-50 dark:bg-zinc-800/50 text-zinc-300">
         <FolderX className="h-6 w-6" />
       </div>
-      <p className="font-display text-xl tracking-tight text-zinc-700">
+      <p className="font-display text-xl tracking-tight text-zinc-700 dark:text-zinc-300">
         Nothing here yet.
       </p>
-      <p className="mt-2 text-sm text-zinc-400">
-        No memories in the <span className="capitalize font-medium text-zinc-500">{tag}</span> collection.
+      <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">
+        No memories in the <span className="capitalize font-medium text-zinc-500 dark:text-zinc-500 dark:text-zinc-500 dark:text-zinc-500">{tag}</span> collection.
       </p>
       <button
         onClick={onClear}
@@ -762,16 +762,16 @@ function FilteredEmptyState({
 
 function Footer() {
   return (
-    <footer className="mt-auto border-t border-zinc-100/60 bg-[#FAFAFA]/70 backdrop-blur-xl">
+    <footer className="mt-auto border-t border-zinc-100/60 bg-[#FAFAFA]/70 dark:bg-[#09090B]/70 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 pt-6 pb-28 sm:flex-row sm:px-8">
-        <p className="font-display text-lg text-zinc-400">Aether</p>
-        <p className="text-xs text-zinc-400">
+        <p className="font-display text-lg text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">Aether</p>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">
           A quieter place to think · crafted in negative space
         </p>
-        <div className="flex items-center gap-5 text-xs text-zinc-400">
-          <a href="#" className="transition-colors duration-300 hover:text-zinc-900">Privacy</a>
-          <a href="#" className="transition-colors duration-300 hover:text-zinc-900">Manifesto</a>
-          <a href="#" className="transition-colors duration-300 hover:text-zinc-900">Contact</a>
+        <div className="flex items-center gap-5 text-xs text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">
+          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50 dark:text-zinc-50">Privacy</a>
+          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50 dark:text-zinc-50">Manifesto</a>
+          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50 dark:text-zinc-50">Contact</a>
         </div>
       </div>
     </footer>

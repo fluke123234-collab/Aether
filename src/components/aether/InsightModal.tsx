@@ -53,7 +53,7 @@ export function InsightModal({ open, memoryId, memoryTitle, onClose }: { open: b
     <div role="dialog" aria-modal="true" aria-label="AI insight" className="fixed inset-0 z-[100] flex items-center justify-center p-5">
       <div aria-hidden onClick={onClose} className="absolute inset-0 bg-black/40 backdrop-blur-md" />
       <div className="relative w-full max-w-lg animate-[aether-modal-in_220ms_cubic-bezier(0.16,1,0.3,1)]">
-        <div className="overflow-hidden rounded-[28px] border border-zinc-100 bg-white shadow-[0_40px_120px_-20px_rgba(0,0,0,0.35)]">
+        <div className="overflow-hidden rounded-[28px] border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] dark:bg-[#27272A]/90 dark:border dark:border-zinc-700/50 dark:backdrop-blur-md shadow-[0_40px_120px_-20px_rgba(0,0,0,0.35)]">
           <div className="relative h-20 bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600">
             <div className="absolute -bottom-8 left-1/2 h-24 w-24 -translate-x-1/2 rounded-full bg-white/20 blur-2xl" />
             <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 text-white"><Compass className="h-4 w-4" /><span className="font-display text-lg tracking-tight">A new angle</span></div>
@@ -61,14 +61,14 @@ export function InsightModal({ open, memoryId, memoryTitle, onClose }: { open: b
           </div>
           <div className="max-h-[60vh] overflow-y-auto px-7 pb-7 pt-6 aether-scroll">
             {loading ? (
-              <div className="flex flex-col items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-purple-400" /><p className="mt-4 text-sm text-zinc-400">Finding a new angle…</p></div>
+              <div className="flex flex-col items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-purple-400" /><p className="mt-4 text-sm text-zinc-400 dark:text-zinc-500">Finding a new angle…</p></div>
             ) : data ? (
               <>
-                <p className="mb-4 text-xs font-medium uppercase tracking-[0.14em] text-zinc-400">On: <span className="text-zinc-600">{memoryTitle}</span></p>
+                <p className="mb-4 text-xs font-medium uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">On: <span className="text-zinc-600 dark:text-zinc-300">{memoryTitle}</span></p>
                 <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-purple-400"><Sparkles className="h-3.5 w-3.5" />{data.angle}</div>
-                <p className="font-display text-lg leading-relaxed tracking-tight text-zinc-800">{data.insight}</p>
+                <p className="font-display text-lg leading-relaxed tracking-tight text-zinc-800 dark:text-zinc-200">{data.insight}</p>
               </>
-            ) : <div className="py-10 text-center text-sm text-zinc-400">Could not load this insight.</div>}
+            ) : <div className="py-10 text-center text-sm text-zinc-400 dark:text-zinc-500">Could not load this insight.</div>}
           </div>
         </div>
       </div>

@@ -19,14 +19,14 @@ export function Serendipity({ memories }: { memories: MemoryRow[] }) {
 
   return (
     <section className="mx-auto w-full max-w-3xl px-5">
-      <div className="relative overflow-hidden rounded-2xl border border-zinc-100/60 bg-white/60 p-6 backdrop-blur-sm shadow-[0_4px_20px_0_rgba(0,0,0,0.015)]">
+      <div className="relative overflow-hidden rounded-2xl border border-zinc-100 dark:border-zinc-800/60 bg-white/60 p-6 backdrop-blur-sm shadow-[0_4px_20px_0_rgba(0,0,0,0.015)]">
         <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-purple-100/30 blur-2xl" />
         <div className="relative flex items-start gap-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-50 text-purple-400"><Sparkles className="h-[18px] w-[18px]" /></div>
           <div className="min-w-0">
-            <p className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-zinc-400">From your sanctuary · {formatDistanceToNow(new Date(memory.created_at), { addSuffix: true })}</p>
-            <h4 className="mb-1.5 text-[15px] font-semibold tracking-tight text-zinc-900">{memory.title}</h4>
-            <p className="text-sm leading-relaxed text-zinc-500 line-clamp-3">{memory.body}</p>
+            <p className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">From your sanctuary · {formatDistanceToNow(new Date(memory.created_at), { addSuffix: true })}</p>
+            <h4 className="mb-1.5 text-[15px] font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">{memory.title}</h4>
+            <p className="text-sm leading-relaxed text-zinc-500 dark:text-zinc-500 line-clamp-3">{memory.body}</p>
           </div>
         </div>
       </div>
