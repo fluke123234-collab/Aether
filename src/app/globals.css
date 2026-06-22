@@ -121,6 +121,13 @@
     font-feature-settings: "ss01", "cv01", "cv03";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background-color: #FAFAFA !important;
+    color: #18181b;
+    transition: background-color 0.4s ease, color 0.4s ease;
+  }
+  html.dark body {
+    background-color: #09090B !important;
+    color: #e4e4e7;
   }
   .font-display {
     font-family: var(--font-display), Georgia, serif;
