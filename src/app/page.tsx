@@ -101,14 +101,14 @@ function TheGlow() {
       aria-hidden
       className="pointer-events-none fixed inset-0 -z-10 overflow-hidden"
     >
-      {/* primary purple bloom — breathing softly behind the content (20s) */}
-      <div className="absolute left-1/2 top-[14%] h-[820px] w-[820px] -translate-x-1/2 rounded-full bg-gradient-to-br from-purple-400/12 via-transparent to-transparent blur-[110px] animate-pulse-slow" />
+      {/* primary purple-rose bloom — breathing softly behind the content (20s) */}
+      <div className="absolute left-1/2 top-[14%] h-[820px] w-[820px] -translate-x-1/2 rounded-full bg-gradient-to-br from-purple-100/30 to-rose-100/20 dark:from-purple-500/8 dark:to-fuchsia-500/6 blur-[110px] animate-pulse-slow" />
       {/* secondary, offset, delayed twin */}
-      <div className="absolute right-[6%] top-[42%] h-[560px] w-[560px] rounded-full bg-gradient-to-tr from-fuchsia-300/8 via-transparent to-transparent blur-[110px] animate-pulse-slow [animation-delay:-7s]" />
+      <div className="absolute right-[6%] top-[42%] h-[560px] w-[560px] rounded-full bg-gradient-to-tr from-rose-100/15 to-purple-100/10 dark:from-fuchsia-500/5 dark:to-transparent blur-[110px] animate-pulse-slow [animation-delay:-7s]" />
       {/* tertiary whisper on the left */}
-      <div className="absolute left-[4%] top-[55%] h-[440px] w-[440px] rounded-full bg-gradient-to-tr from-indigo-300/8 via-transparent to-transparent blur-[110px] animate-pulse-slow [animation-delay:-12s]" />
+      <div className="absolute left-[4%] top-[55%] h-[440px] w-[440px] rounded-full bg-gradient-to-tr from-purple-100/12 to-rose-100/8 dark:from-indigo-500/5 dark:to-transparent blur-[110px] animate-pulse-slow [animation-delay:-12s]" />
       {/* faint warm floor wash */}
-      <div className="absolute bottom-0 left-0 h-[280px] w-full bg-gradient-to-t from-purple-100/20 to-transparent blur-[80px]" />
+      <div className="absolute bottom-0 left-0 h-[280px] w-full bg-gradient-to-t from-purple-100/20 to-transparent dark:from-purple-900/10 dark:to-transparent blur-[80px]" />
     </div>
   )
 }
@@ -125,7 +125,7 @@ function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenPr
   const isDark = theme === 'dark'
 
   return (
-    <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#FAFAFA]/70 dark:bg-[#09090B]/70 border-b border-zinc-100/60 dark:border-zinc-800/60">
+    <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#FCFBF9]/70 dark:bg-[#09090B]/70 border-b border-zinc-200/50 dark:border-zinc-800/60">
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-5 sm:px-8">
         {/* Wordmark */}
         <a
@@ -139,15 +139,15 @@ function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenPr
         <button onClick={() => ensureAuthenticated(onOpenAsk)} className="group ml-2 hidden flex-1 sm:block">
           <span className="group relative flex items-center">
             <Search className="pointer-events-none absolute left-4 h-[18px] w-[18px] text-zinc-400 dark:text-zinc-500 transition-colors duration-300 group-hover:text-purple-500" />
-            <span className="flex h-10 w-full max-w-md items-center rounded-full bg-white border border-zinc-100 dark:border-zinc-800 pl-11 pr-16 text-sm text-zinc-400 dark:text-zinc-500 shadow-[inset_0_1px_2px_rgb(0,0,0,0.03)] transition-all duration-300 group-hover:border-zinc-200 dark:hover:border-zinc-700 group-hover:shadow-inner">
+            <span className="flex h-10 w-full max-w-md items-center rounded-full bg-white dark:bg-[#18181B] border border-zinc-200/50 dark:border-zinc-800/60 pl-11 pr-16 text-sm text-zinc-400 dark:text-zinc-500 shadow-[inset_0_1px_2px_rgb(0,0,0,0.03)] transition-all duration-300 group-hover:border-zinc-200 dark:hover:border-zinc-700 group-hover:shadow-inner">
               Ask Aether anything…
             </span>
-            <kbd className="absolute right-3 hidden md:flex items-center gap-1 rounded-md border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">⌘K</kbd>
+            <kbd className="absolute right-3 hidden md:flex items-center gap-1 rounded-md border border-zinc-200/50 dark:border-zinc-800/60 bg-zinc-50 dark:bg-zinc-800/50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">⌘K</kbd>
           </span>
         </button>
 
         {/* Mobile — compact search icon */}
-        <button onClick={() => ensureAuthenticated(onOpenAsk)} aria-label="Ask Aether" className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 dark:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-300 dark:text-zinc-300 active:scale-95 sm:hidden">
+        <button onClick={() => ensureAuthenticated(onOpenAsk)} aria-label="Ask Aether" className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-300 active:scale-95 sm:hidden">
           <Search className="h-[18px] w-[18px]" />
         </button>
 
@@ -161,7 +161,7 @@ function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenPr
           aria-pressed={isDark}
           onClick={toggleTheme}
           title={isDark ? 'Light mode' : 'Dark mode'}
-          className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 backdrop-blur-sm transition-all duration-300 hover:scale-105 hover:border-purple-400 hover:text-purple-500 active:scale-95"
+          className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 backdrop-blur-sm transition-all duration-300 hover:scale-105 hover:border-purple-400 hover:text-purple-500 active:scale-95"
         >
           {/* Sun (visible in light) */}
           <Sun className={`absolute h-[18px] w-[18px] transition-all duration-300 ${isDark ? 'rotate-90 scale-0 opacity-0' : 'rotate-0 scale-100 opacity-100'}`} />
@@ -194,7 +194,7 @@ function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenPr
 function HeroGreeting() {
   return (
     <section className="mx-auto w-full max-w-3xl px-5 text-center">
-      <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-zinc-100 dark:border-zinc-800 bg-white/60 dark:bg-[#18181B]/60 px-4 py-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400 backdrop-blur-sm animate-rise">
+      <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-zinc-200/50 dark:border-zinc-800/60 bg-white/60 dark:bg-zinc-900/60 px-4 py-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400 backdrop-blur-sm animate-rise">
         <Sparkles className="h-[18px] w-[18px] text-purple-400" />
         A quieter place to think
       </p>
@@ -306,7 +306,7 @@ function FloatingCapsule({
   return (
     <div className="fixed bottom-5 left-1/2 z-40 w-[calc(100%-2.5rem)] max-w-2xl -translate-x-1/2 animate-rise">
       {pendingImage && (
-        <div className="mb-2 flex items-center gap-2 rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] p-2 shadow-[0_4px_20px_0_rgba(0,0,0,0.04)] dark:shadow-[0_4px_20px_0_rgba(0,0,0,0.3)]">
+        <div className="mb-2 flex items-center gap-2 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-[#18181B] p-2 shadow-[0_8px_30px_rgb(0,0,0,0.015)] dark:shadow-none">
           <img src={pendingImage} alt="Pending capture" className="h-12 w-12 rounded-lg object-cover" />
           <span className="flex-1 text-xs text-zinc-500 dark:text-zinc-400">Image ready to capture</span>
           <button aria-label="Remove image" onClick={() => setPendingImage(null)} className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-200 hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:text-rose-500 active:scale-95">
@@ -314,7 +314,7 @@ function FloatingCapsule({
           </button>
         </div>
       )}
-      <div className="aether-glass-capsule group flex items-center gap-1 rounded-full border border-zinc-100 dark:border-zinc-800 bg-white p-1.5 pl-6 shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-100 dark:border-zinc-800">
+      <div className="aether-glass-capsule group flex items-center gap-1 rounded-full border border-zinc-200/50 dark:border-zinc-800/80 bg-white p-1.5 pl-6 shadow-[0_8px_30px_rgb(0,0,0,0.015)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-200 dark:focus-within:border-purple-500/40">
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -521,7 +521,7 @@ function MemoryCard({
   }
 
   return (
-    <article className="group rounded-2xl border border-zinc-100/60 dark:border-zinc-800/60 bg-white dark:bg-[#18181B] p-6 shadow-[0_4px_20px_0_rgba(0,0,0,0.015)] dark:shadow-[0_4px_20px_0_rgba(0,0,0,0.3)] transition-all duration-500 hover:shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] dark:hover:shadow-[0_12px_60px_0_rgba(0,0,0,0.4)] hover:-translate-y-0.5 hover:border-zinc-200 dark:hover:border-zinc-700/60 dark:border-zinc-700/60">
+    <article className="group rounded-2xl border border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-[#18181B] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.015)] dark:shadow-none transition-all duration-500 hover:shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] dark:hover:shadow-none hover:-translate-y-0.5 hover:border-zinc-200 dark:hover:border-zinc-700/60">
       <div className="mb-5 flex items-center justify-between">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-50 dark:bg-zinc-800/50 text-zinc-400 dark:text-zinc-500 transition-all duration-300 group-hover:bg-purple-50 dark:group-hover:bg-purple-500/10 group-hover:text-purple-500">
           {processing ? (
@@ -541,22 +541,22 @@ function MemoryCard({
           >
             <Heart className={`h-4 w-4 ${favorited ? 'fill-current' : ''}`} />
           </button>
-          <span className="text-xs text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">
+          <span className="text-xs text-zinc-400 dark:text-zinc-500">
             {processing ? 'Refining…' : timeAgo(memory.created_at)}
           </span>
         </div>
       </div>
 
-      <h4 className="mb-2 font-display text-lg font-normal tracking-tight text-zinc-900 dark:text-zinc-50 dark:text-zinc-50">
+      <h4 className="mb-2 font-display text-lg font-normal tracking-tight text-zinc-900 dark:text-zinc-50">
         {memory.title}
       </h4>
 
       {/* Image — clean framed thumbnail, expands on click, shrinks on unhover */}
       {imageData && (
-        <div className="mb-4 overflow-hidden rounded-xl border border-zinc-100 dark:border-zinc-800 transition-all duration-500">
+        <div className="mb-4 overflow-hidden rounded-xl border border-zinc-200/50 dark:border-zinc-800/60 transition-all duration-500">
           {showImage ? (
             <div className="relative">
-              <img src={imageData} alt={memory.title} className="w-full max-h-[400px] object-contain bg-zinc-50 dark:bg-zinc-800/50 dark:bg-zinc-800/50" />
+              <img src={imageData} alt={memory.title} className="w-full max-h-[400px] object-contain bg-zinc-50 dark:bg-zinc-800/50" />
               <button aria-label="Collapse image" onClick={() => setShowImage(false)} className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95">
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -578,7 +578,7 @@ function MemoryCard({
       {audioData && (
         <div className="mb-4">
           <audio ref={audioRef} src={audioData} onEnded={() => setPlaying(false)} className="hidden" />
-          <div className="flex items-center gap-3 rounded-xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50/40 dark:bg-zinc-800/30 p-3 transition-all duration-300 hover:border-purple-200 dark:hover:border-purple-500/30 hover:bg-purple-50/30 dark:hover:bg-purple-500/5">
+          <div className="flex items-center gap-3 rounded-xl border border-zinc-200/50 dark:border-zinc-800/60 bg-zinc-50/40 dark:bg-zinc-800/30 p-3 transition-all duration-300 hover:border-purple-200 dark:hover:border-purple-500/30 hover:bg-purple-50/30 dark:hover:bg-purple-500/5">
             <button
               onClick={toggleAudio}
               aria-label={playing ? 'Pause voice note' : 'Play voice note'}
@@ -607,7 +607,7 @@ function MemoryCard({
                 />
               ))}
             </div>
-            <span className="shrink-0 text-[10px] font-medium text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">{playing ? 'Playing…' : 'Voice note'}</span>
+            <span className="shrink-0 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">{playing ? 'Playing…' : 'Voice note'}</span>
           </div>
         </div>
       )}
@@ -618,7 +618,7 @@ function MemoryCard({
 
       {/* AI image description — clean, subtle */}
       {!processing && imageDesc && (
-        <div className="mb-4 rounded-xl border border-zinc-100/80 dark:border-zinc-800/80 bg-gradient-to-br from-zinc-50/80 to-purple-50/20 dark:from-zinc-800/50 dark:to-purple-500/5 px-4 py-3">
+        <div className="mb-4 rounded-xl border border-zinc-200/50 dark:border-zinc-800/80 bg-gradient-to-br from-zinc-50/80 to-purple-50/20 dark:from-zinc-800/50 dark:to-purple-500/5 px-4 py-3">
           <div className="mb-1 flex items-center gap-1.5">
             <ImageIcon className="h-3 w-3 text-zinc-400 dark:text-zinc-500" />
             <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">AI image analysis</span>
@@ -713,7 +713,7 @@ function SkeletonGrid() {
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className="rounded-2xl border border-zinc-100/60 bg-white dark:bg-[#18181B] p-6 shadow-sm dark:border dark:border-zinc-800/40"
+          className="rounded-2xl border border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-[#18181B] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.015)] dark:shadow-none"
         >
           <div className="mb-5 flex items-center justify-between">
             <div className="h-10 w-10 rounded-full bg-zinc-100 dark:bg-zinc-800 animate-pulse" />
@@ -731,8 +731,8 @@ function SkeletonGrid() {
 /* The empty sanctuary — calm, inviting, never an error */
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200/70 dark:border-zinc-800/70 bg-white/40 dark:bg-[#18181B]/40 px-6 py-20 text-center">
-      <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 dark:bg-purple-500/10 text-purple-300 dark:text-purple-400">
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200/70 dark:border-zinc-800/70 bg-white/40 dark:bg-zinc-900/40 px-6 py-20 text-center">
+      <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 dark:bg-purple-500/10 text-purple-300 dark:text-zinc-700">
         <Feather className="h-6 w-6" />
       </div>
       <p className="font-display text-xl tracking-tight text-zinc-700 dark:text-zinc-200">
@@ -754,8 +754,8 @@ function FilteredEmptyState({
   onClear: () => void
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200/70 dark:border-zinc-800/70 bg-white/40 dark:bg-[#18181B]/40 px-6 py-20 text-center">
-      <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-50 dark:bg-zinc-800/50 text-zinc-300 dark:text-zinc-600">
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200/70 dark:border-zinc-800/70 bg-white/40 dark:bg-zinc-900/40 px-6 py-20 text-center">
+      <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-50 dark:bg-zinc-800/50 text-zinc-300 dark:text-zinc-700">
         <FolderX className="h-6 w-6" />
       </div>
       <p className="font-display text-xl tracking-tight text-zinc-700 dark:text-zinc-200">
@@ -780,16 +780,16 @@ function FilteredEmptyState({
 
 function Footer() {
   return (
-    <footer className="mt-auto border-t border-zinc-100/60 bg-[#FAFAFA]/70 dark:bg-[#09090B]/70 backdrop-blur-xl">
+    <footer className="mt-auto border-t border-zinc-200/50 dark:border-zinc-800/60 bg-[#FCFBF9]/70 dark:bg-[#09090B]/70 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 pt-6 pb-28 sm:flex-row sm:px-8">
-        <p className="font-display text-lg text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">Aether</p>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">
+        <p className="font-display text-lg text-zinc-400 dark:text-zinc-500">Aether</p>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500">
           A quieter place to think · crafted in negative space
         </p>
-        <div className="flex items-center gap-5 text-xs text-zinc-400 dark:text-zinc-500 dark:text-zinc-500">
-          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50 dark:text-zinc-50">Privacy</a>
-          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50 dark:text-zinc-50">Manifesto</a>
-          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50 dark:text-zinc-50">Contact</a>
+        <div className="flex items-center gap-5 text-xs text-zinc-400 dark:text-zinc-500">
+          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50">Privacy</a>
+          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50">Manifesto</a>
+          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50">Contact</a>
         </div>
       </div>
     </footer>

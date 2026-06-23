@@ -40,7 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${displaySerif.variable} antialiased bg-[#FAFAFA] text-zinc-900`}
+        className={`${geistSans.variable} ${displaySerif.variable} antialiased bg-[#FCFBF9] text-zinc-900 dark:bg-[#09090B] dark:text-zinc-50`}
       >
         {children}
         <Toaster />

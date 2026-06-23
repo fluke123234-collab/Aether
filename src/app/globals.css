@@ -200,17 +200,17 @@
 }
 
 /* ── Aether glass capsule (dark mode only) ─────────────────────
-   Sleek glassmorphism for the floating input bar in dark mode:
-   semi-transparent white tint + strong backdrop blur + hairline
-   border. Lets content scroll underneath as a clean overlay instead
-   of a harsh solid block. Light mode keeps the solid white surface.
+   Premium see-through glassmorphic shield for the floating input
+   bar in dark mode: semi-transparent white tint + strong backdrop
+   blur (xl) + fine zinc-800 border. Lets content scroll underneath
+   as a clean overlay. Light mode keeps the solid white surface.
    ──────────────────────────────────────────────────────────── */
 .dark .aether-glass-capsule {
   background-color: rgba(255, 255, 255, 0.07) !important;
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  border-color: rgba(255, 255, 255, 0.12) !important;
-  box-shadow: 0 12px 60px 0 rgba(0, 0, 0, 0.35),
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border-color: rgba(63, 63, 70, 0.8) !important; /* zinc-800/80 */
+  box-shadow: 0 12px 60px 0 rgba(0, 0, 0, 0.4),
               inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
 }
 .dark .aether-glass-capsule:focus-within {

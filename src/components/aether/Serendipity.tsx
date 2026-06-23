@@ -19,7 +19,7 @@ export function Serendipity({ memories }: { memories: MemoryRow[] }) {
 
   return (
     <section className="mx-auto w-full max-w-3xl px-5">
-      <div className="relative overflow-hidden rounded-2xl border border-zinc-100 dark:border-zinc-800/60 bg-white/60 dark:bg-[#18181B]/80 p-6 backdrop-blur-sm shadow-[0_4px_20px_0_rgba(0,0,0,0.015)] dark:shadow-[0_4px_20px_0_rgba(0,0,0,0.3)]">
+      <div className="relative overflow-hidden rounded-2xl border border-zinc-200/50 dark:border-zinc-800/60 bg-white/60 dark:bg-[#18181B]/80 p-6 backdrop-blur-sm shadow-[0_8px_30px_rgb(0,0,0,0.015)] dark:shadow-none">
         <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-purple-100/30 dark:bg-purple-500/10 blur-2xl" />
         <div className="relative flex items-start gap-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-50 dark:bg-purple-500/10 text-purple-400 dark:text-purple-400"><Sparkles className="h-[18px] w-[18px]" /></div>

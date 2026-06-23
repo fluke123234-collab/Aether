@@ -99,7 +99,7 @@ export function AuthModal() {
 
       {/* Modal card — instant mount, a whisper-soft scale-in */}
       <div className="relative w-full max-w-md animate-[aether-modal-in_220ms_cubic-bezier(0.16,1,0.3,1)]">
-        <div className="overflow-hidden rounded-[28px] border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] dark:bg-[#27272A]/90 dark:border dark:border-zinc-700/50 dark:backdrop-blur-md shadow-[0_40px_120px_-20px_rgba(0,0,0,0.35)]">
+        <div className="overflow-hidden rounded-[28px] border border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-[#27272A]/80 dark:backdrop-blur-md shadow-[0_40px_120px_-20px_rgba(0,0,0,0.35)]">
           {/* velvet header glow */}
           <div className="pointer-events-none relative h-24 bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600">
             <div className="absolute -bottom-10 left-1/2 h-28 w-28 -translate-x-1/2 rounded-full bg-white/20 blur-2xl" />
@@ -128,7 +128,7 @@ export function AuthModal() {
 
             <form onSubmit={handleSubmit} className="mt-7 space-y-3">
               {/* Email capsule */}
-              <label className="group relative flex items-center rounded-full border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] pl-5 pr-2 shadow-[0_4px_20px_rgb(0,0,0,0.02)] focus-within:border-zinc-200 transition-all duration-300">
+              <label className="group relative flex items-center rounded-full border border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-[#18181B] pl-5 pr-2 shadow-[0_4px_20px_rgb(0,0,0,0.02)] focus-within:border-zinc-200 transition-all duration-300">
                 <Mail className="pointer-events-none h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                 <input
                   ref={emailRef}
@@ -141,7 +141,7 @@ export function AuthModal() {
               </label>
 
               {/* Password capsule */}
-              <label className="group relative flex items-center rounded-full border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] pl-5 pr-2 shadow-[0_4px_20px_rgb(0,0,0,0.02)] focus-within:border-zinc-200 transition-all duration-300">
+              <label className="group relative flex items-center rounded-full border border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-[#18181B] pl-5 pr-2 shadow-[0_4px_20px_rgb(0,0,0,0.02)] focus-within:border-zinc-200 transition-all duration-300">
                 <Lock className="pointer-events-none h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                 <input
                   type="password"

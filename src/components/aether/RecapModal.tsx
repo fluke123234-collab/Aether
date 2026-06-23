@@ -71,7 +71,7 @@ export function RecapModal({ open, onClose }: { open: boolean; onClose: () => vo
     <div role="dialog" aria-modal="true" aria-label="Your 24h recap" className="fixed inset-0 z-[100] flex items-center justify-center p-5">
       <div aria-hidden onClick={onClose} className="absolute inset-0 bg-black/40 backdrop-blur-md" />
       <div className="relative w-full max-w-lg animate-[aether-modal-in_220ms_cubic-bezier(0.16,1,0.3,1)]">
-        <div className="overflow-hidden rounded-[28px] border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] dark:bg-[#27272A]/90 dark:border dark:border-zinc-700/50 dark:backdrop-blur-md shadow-[0_40px_120px_-20px_rgba(0,0,0,0.35)]">
+        <div className="overflow-hidden rounded-[28px] border border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-[#27272A]/80 dark:backdrop-blur-md shadow-[0_40px_120px_-20px_rgba(0,0,0,0.35)]">
           <div className="relative h-20 bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600">
             <div className="absolute -bottom-8 left-1/2 h-24 w-24 -translate-x-1/2 rounded-full bg-white/20 blur-2xl" />
             <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 text-white">

@@ -111,8 +111,8 @@ function FolderPill({
       onClick={onClick}
       className={`group inline-flex items-center gap-2.5 rounded-full border px-4 py-2 text-sm font-medium transition-all duration-300 active:scale-95 ${
         active
-          ? 'border-purple-200 dark:border-purple-500/30 bg-purple-50 dark:bg-purple-500/15 text-purple-700 dark:text-purple-300 shadow-[0_4px_20px_rgba(139,92,246,0.08)] dark:shadow-[0_4px_20px_rgba(139,92,246,0.15)]'
-          : 'border-zinc-100 dark:border-zinc-800 bg-white dark:bg-[#18181B] text-zinc-600 dark:text-zinc-300 hover:border-zinc-200 dark:hover:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 hover:-translate-y-0.5'
+          ? 'border-purple-200 dark:border-purple-500/30 bg-purple-50 dark:bg-purple-500/15 text-purple-700 dark:text-purple-300 shadow-[0_4px_20px_rgba(139,92,246,0.08)] dark:shadow-none'
+          : 'border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-[#18181B] text-zinc-600 dark:text-zinc-300 hover:border-zinc-200 dark:hover:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 hover:-translate-y-0.5'
       }`}
     >
       <Icon
