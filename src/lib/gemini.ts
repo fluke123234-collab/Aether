@@ -1,14 +1,16 @@
 /**
- * Aether · Memory enrichment — fast, token-efficient
+ * Aether · Memory enrichment — uses z-ai CLI for reliable AI tagging
  * ------------------------------------------------------------
- * Tries Z.ai first (5s timeout). If it fails, uses an instant
- * heuristic fallback that generates a title, summary, and tags
- * without any API call. This keeps captures fast even when the
- * AI is unavailable, and saves tokens by only calling the AI
- * for text that actually needs it.
+ * Tries the z-ai CLI first (proven to work, ~0.5-2s). If it fails,
+ * uses an instant heuristic fallback that generates a title, summary,
+ * and tags without any API call.
+ *
+ * Tags are generated invisibly — they power semantic search in
+ * /api/ask but are never rendered in the UI.
  */
 
 import { logger } from './logger'
+import { analyzeTextWithCLI } from './text-enrichment'
 
 export type MemoryAnalysis = {
   title: string
@@ -16,17 +18,6 @@ export type MemoryAnalysis = {
   tags: string[]
   body?: string
 }
-
-const ZAI_API_KEY = process.env.ZAI_API_KEY || ''
-const ZAI_BASE_URL = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1'
-
-const ENRICHMENT_PROMPT = `You are Aether's memory curator. Given a raw captured thought, return metadata as valid raw JSON only. No markdown code blocks.
-
-Be extremely brief. Title max 5 words, Title Case, no trailing punctuation. Summary 1 sentence max 15 words, proper punctuation. Generate 5 highly contextual tags (lowercase, single words or short hyphenated phrases) that capture the key topics, themes, and entities — these power semantic search so be specific and comprehensive.
-
-ALSO: fix the body text — correct spelling, add proper capitalization and punctuation (periods, commas, apostrophes). Keep the user's original words but make it grammatically correct.
-
-Return exactly: {"title":"...","summary":"...","tags":["tag1","tag2","tag3","tag4","tag5"],"body":"corrected body text with proper punctuation"}`
 
 /* ── Instant heuristic fallback — no API call needed ── */
 function fallbackAnalysis(content: string): MemoryAnalysis {
@@ -52,9 +43,12 @@ function fallbackAnalysis(content: string): MemoryAnalysis {
     family: 'personal', friend: 'personal', love: 'personal',
     task: 'task', todo: 'task', need: 'task', must: 'task', should: 'task',
     buy: 'task', call: 'task', send: 'task', fix: 'task', finish: 'task',
+    pc: 'technology', cpu: 'technology', gpu: 'technology', hardware: 'technology',
+    build: 'technology', specs: 'technology', intel: 'technology', amd: 'technology',
+    motherboard: 'technology', ram: 'technology', ssd: 'technology', monitor: 'technology',
   }
   for (const [kw, tag] of Object.entries(hints)) {
-    if (lower.includes(kw) && tags.size < 3) tags.add(tag)
+    if (lower.includes(kw) && tags.size < 5) tags.add(tag)
   }
 
   return { title, summary, tags: Array.from(tags) }
@@ -67,48 +61,15 @@ export async function analyzeMemoryText(content: string): Promise<string> {
   // Short text (under 20 chars) — use heuristic, don't waste an API call.
   if (text.length < 20) return JSON.stringify(fallbackAnalysis(text))
 
-  // Try Z.ai with a short 5s timeout.
-  if (ZAI_API_KEY) {
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${ZAI_API_KEY}`,
-        'X-Z-AI-From': 'Z',
-      }
-      if (process.env.ZAI_CHAT_ID) headers['X-Chat-Id'] = process.env.ZAI_CHAT_ID
-      if (process.env.ZAI_USER_ID) headers['X-User-Id'] = process.env.ZAI_USER_ID
-      if (process.env.ZAI_TOKEN) headers['X-Token'] = process.env.ZAI_TOKEN
-
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 4000)
-
-      const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers,
-        signal: controller.signal,
-        body: JSON.stringify({
-          messages: [
-            { role: 'system', content: ENRICHMENT_PROMPT },
-            { role: 'user', content: text.slice(0, 500) }, // Truncate to save tokens
-          ],
-          thinking: { type: 'disabled' },
-        }),
-      })
-
-      clearTimeout(timeout)
-
-      if (res.ok) {
-        const json = await res.json()
-        const raw = json?.choices?.[0]?.message?.content ?? ''
-        const parsed = parseAnalysisJson(raw, text)
-        if (parsed) return JSON.stringify(parsed)
-      }
-    } catch (err) {
-      logger.warn('Aether · enrichment fell back:', err instanceof Error ? err.message : err)
-    }
+  // Try the z-ai CLI first (proven to work reliably).
+  const cliResult = await analyzeTextWithCLI(text, 10000)
+  if (cliResult) {
+    const parsed = parseAnalysisJson(cliResult, text)
+    if (parsed) return JSON.stringify(parsed)
   }
 
   // Instant fallback — no API call, no delay.
+  logger.warn('Aether · enrichment fell back to heuristic')
   return JSON.stringify(fallbackAnalysis(text))
 }
 
@@ -118,7 +79,8 @@ function parseAnalysisJson(raw: string, text: string): MemoryAnalysis | null {
     try { parsed = JSON.parse(raw) } catch { const match = raw.match(/\{[\s\S]*\}/); parsed = match ? JSON.parse(match[0]) : {} }
     const title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim().slice(0, 80) : fallbackAnalysis(text).title
     const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 200) : ''
-    const tags = Array.isArray(parsed.tags) ? parsed.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim()).slice(0, 3) : ['capture']
+    // Allow up to 5 tags (was 3 — limited search indexing)
+    const tags = Array.isArray(parsed.tags) ? parsed.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim()).slice(0, 5) : ['capture']
     const body = typeof parsed.body === 'string' && parsed.body.trim() ? parsed.body.trim().slice(0, 500) : undefined
     return { title, summary, tags: tags.length ? tags : ['capture'], body }
   } catch { return null }
