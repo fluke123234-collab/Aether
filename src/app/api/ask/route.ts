@@ -22,6 +22,7 @@ import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60 // Vercel: give VLM up to 60s
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -161,14 +162,14 @@ export async function POST(req: NextRequest) {
   const fullPrompt = contextBlock + urlContext + question
   let raw: string | null = null
 
-  // Try Gemini first
-  if (GEMINI_API_KEY) { const r = await tryGemini(history, fullPrompt); if (r) raw = r }
-  // Try Groq
+  // Try ZAI SDK first (works with built-in defaults, no env vars needed)
+  { const r = await tryZaiSdk(history, fullPrompt); if (r) raw = r }
+  // Try Gemini (needs GEMINI_API_KEY)
+  if (!raw && GEMINI_API_KEY) { const r = await tryGemini(history, fullPrompt); if (r) raw = r }
+  // Try Groq (needs GROQ_API_KEY)
   if (!raw && GROQ_API_KEY) { const r = await tryGroq(history, fullPrompt); if (r) raw = r }
-  // Try Z.ai direct API
+  // Try Z.ai direct API (needs ZAI_API_KEY)
   if (!raw && ZAI_API_KEY) { const r = await tryZai(history, fullPrompt); if (r) raw = r }
-  // Try z-ai SDK
-  if (!raw) { const r = await tryZaiSdk(history, fullPrompt); if (r) raw = r }
 
   if (!raw) return NextResponse.json({ success: true, answer: "I'm having trouble connecting right now — give me a moment and try again.", memoryIds: [] } satisfies AskResponse)
 
@@ -183,13 +184,7 @@ async function scrapeUrl(url: string): Promise<string | null> {
   try {
     const ZAIModule = await import('z-ai-web-dev-sdk')
     const ZAI = ZAIModule.default
-    const zai = new ZAI({
-      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
-      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
-      token: process.env.ZAI_TOKEN || '',
-      chatId: process.env.ZAI_CHAT_ID || '',
-      userId: process.env.ZAI_USER_ID || '',
-    })
+    const zai = await ZAI.create()
     const result = await zai.functions.invoke('page_reader', { url })
     const data = result?.data as { title?: string; text?: string; html?: string; publishedTime?: string } | undefined
     if (!data) return null
@@ -298,15 +293,10 @@ async function tryZai(history: { role: 'user' | 'model'; text: string }[], fullP
 
 async function tryZaiSdk(history: { role: 'user' | 'model'; text: string }[], fullPrompt: string): Promise<string | null> {
   try {
+    // Use ZAI.create() — works with built-in defaults on any host (including Vercel)
     const ZAIModule = await import('z-ai-web-dev-sdk')
     const ZAI = ZAIModule.default
-    const zai = new ZAI({
-      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
-      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
-      token: process.env.ZAI_TOKEN || '',
-      chatId: process.env.ZAI_CHAT_ID || '',
-      userId: process.env.ZAI_USER_ID || '',
-    })
+    const zai = await ZAI.create()
     const messages = [{ role: 'system', content: SYSTEM_PROMPT }, ...history.map((h) => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.text })), { role: 'user', content: fullPrompt }]
     const res = await zai.chat.completions.create({ messages })
     return res.choices[0]?.message?.content ?? null

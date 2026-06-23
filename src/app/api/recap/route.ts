@@ -104,36 +104,32 @@ export async function POST(req: NextRequest) {
   let distillation = 'Your day held a few quiet threads worth keeping.'
   let insights = ['The act of capturing is itself a form of attention.', 'Notice what recurs.', 'A thought kept is a thought honoured.']
 
-  if (ZAI_API_KEY) {
+  // Use ZAI.create() — works with built-in defaults on any host
+  {
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${ZAI_API_KEY}`, 'X-Z-AI-From': 'Z' }
-      if (process.env.ZAI_CHAT_ID) headers['X-Chat-Id'] = process.env.ZAI_CHAT_ID
-      if (process.env.ZAI_USER_ID) headers['X-User-Id'] = process.env.ZAI_USER_ID
-      if (process.env.ZAI_TOKEN) headers['X-Token'] = process.env.ZAI_TOKEN
-      // 12s timeout — fail fast so the user doesn't wait on a hanging recap
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 12000)
-      const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers,
-        signal: controller.signal,
-        body: JSON.stringify({
-          messages: [
-            { role: 'system', content: RECAP_PROMPT },
-            { role: 'user', content: memoryText },
-          ],
-          thinking: { type: 'disabled' },
-        }),
+      const ZAIModule = await import('z-ai-web-dev-sdk')
+      const ZAI = ZAIModule.default
+      const zai = await ZAI.create()
+
+      const chatPromise = zai.chat.completions.create({
+        messages: [
+          { role: 'system', content: RECAP_PROMPT },
+          { role: 'user', content: memoryText },
+        ],
       })
-      clearTimeout(timeout)
-      if (res.ok) {
-        const json = await res.json()
-        const raw = json?.choices?.[0]?.message?.content ?? ''
+
+      // 12s timeout
+      const timeoutPromise = new Promise<null>((resolve) =>
+        setTimeout(() => resolve(null), 12000)
+      )
+
+      const res = await Promise.race([chatPromise, timeoutPromise])
+      if (res) {
+        const raw = res.choices?.[0]?.message?.content ?? ''
         try {
           const p = JSON.parse(raw)
           if (typeof p.distillation === 'string') distillation = p.distillation.slice(0, 500)
           if (Array.isArray(p.insights)) {
-            // Enforce exactly 3 distinct insights
             insights = p.insights
               .filter((s: unknown) => typeof s === 'string' && s.trim().length > 0)
               .slice(0, 3)

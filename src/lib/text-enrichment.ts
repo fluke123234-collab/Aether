@@ -1,17 +1,11 @@
 /**
- * Aether · Text enrichment utility — uses the z-ai CLI for reliable LLM calls
+ * Aether · Text enrichment utility — uses ZAI.create() for reliable LLM calls
  * ------------------------------------------------------------
- * The z-ai-web-dev-sdk direct API calls fail silently when ZAI_API_KEY
- * is not set in the environment. The z-ai CLI has its own built-in
- * configuration that works reliably. This utility calls the CLI for
- * text analysis (tag generation, title/summary/body correction).
+ * ZAI.create() uses the SDK's built-in default configuration which
+ * works on any host (including Vercel). No env vars needed.
  */
 
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { logger } from './logger'
-
-const execFileAsync = promisify(execFile)
 
 const ENRICHMENT_PROMPT = `You are Aether's memory curator. Given a raw captured thought, return metadata as valid raw JSON only. No markdown code blocks.
 
@@ -28,26 +22,26 @@ export type MemoryAnalysis = {
   body?: string
 }
 
-/**
- * Extract the JSON object from CLI output that may contain
- * non-JSON prefix lines (like '🚀 Initializing Z-AI SDK...').
- */
-function extractJson(stdout: string): string | null {
-  if (!stdout || !stdout.trim()) return null
-  // Find the first '{' and extract from there to the matching '}'
-  const start = stdout.indexOf('{')
-  if (start === -1) return null
-  // Find the last '}' to get the complete JSON object
-  const end = stdout.lastIndexOf('}')
-  if (end === -1 || end <= start) return null
-  return stdout.slice(start, end + 1)
+let zaiInstance: Awaited<ReturnType<typeof import('z-ai-web-dev-sdk').default.create>> | null = null
+let zaiPromise: Promise<typeof zaiInstance> | null = null
+
+async function getZai() {
+  if (zaiInstance) return zaiInstance
+  if (zaiPromise) return zaiPromise
+  zaiPromise = (async () => {
+    const ZAIModule = await import('z-ai-web-dev-sdk')
+    const ZAI = ZAIModule.default
+    zaiInstance = await ZAI.create()
+    return zaiInstance
+  })()
+  return zaiPromise
 }
 
 /**
- * Analyze text using the z-ai CLI chat command.
+ * Analyze text using ZAI.create() + chat.completions.create().
  * @param content - the raw text to analyze
  * @param timeoutMs - hard timeout (default 10s)
- * @returns JSON string of MemoryAnalysis, or null on failure
+ * @returns JSON string of the AI response, or null on failure
  */
 export async function analyzeTextWithCLI(
   content: string,
@@ -57,36 +51,38 @@ export async function analyzeTextWithCLI(
   if (!text || text.length < 20) return null
 
   try {
-    const { stdout } = await execFileAsync(
-      'z-ai',
-      ['chat', '-p', text.slice(0, 1000), '-s', ENRICHMENT_PROMPT],
-      {
-        timeout: timeoutMs,
-        maxBuffer: 5 * 1024 * 1024,
-      }
-    )
-
-    // The CLI outputs non-JSON prefix lines (🚀 Initializing...) to stdout
-    // before the actual JSON. Extract just the JSON object.
-    const jsonStr = extractJson(stdout)
-    if (!jsonStr) {
-      logger.warn('Aether · text CLI: no JSON found in stdout')
+    const zai = await getZai()
+    if (!zai) {
+      logger.warn('Aether · text enrichment: ZAI.create() returned null')
       return null
     }
 
-    try {
-      const json = JSON.parse(jsonStr)
-      const raw = json?.choices?.[0]?.message?.content
-      if (typeof raw === 'string' && raw.trim()) {
-        return raw.trim()
-      }
-    } catch (parseErr) {
-      logger.warn('Aether · text CLI JSON parse failed:', parseErr instanceof Error ? parseErr.message : parseErr)
+    const chatPromise = zai.chat.completions.create({
+      messages: [
+        { role: 'system', content: ENRICHMENT_PROMPT },
+        { role: 'user', content: text.slice(0, 1000) },
+      ],
+    })
+
+    const timeoutPromise = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), timeoutMs)
+    )
+
+    const res = await Promise.race([chatPromise, timeoutPromise])
+    if (!res) {
+      logger.warn('Aether · text enrichment: timed out')
+      return null
     }
 
+    const raw = res.choices?.[0]?.message?.content
+    if (typeof raw === 'string' && raw.trim()) {
+      return raw.trim()
+    }
+
+    logger.warn('Aether · text enrichment: empty response')
     return null
   } catch (err) {
-    logger.warn('Aether · text enrichment CLI failed:', err instanceof Error ? err.message : err)
+    logger.warn('Aether · text enrichment failed:', err instanceof Error ? err.message : err)
     return null
   }
 }
