@@ -4,9 +4,9 @@
  * ZAI.create() uses the SDK's built-in default configuration which
  * works on any host (including Vercel). No env vars needed.
  *
- * The `new ZAI(config)` approach requires explicit credentials that
- * aren't available on Vercel. The `z-ai` CLI approach only works locally.
- * ZAI.create() is the only approach that works everywhere.
+ * Images are compressed to max 1024px with sharpen filter before
+ * upload — preserves text-contrast edges for high-fidelity OCR while
+ * reducing upload time and API latency.
  */
 
 import { logger } from './logger'
@@ -30,7 +30,37 @@ async function getZai() {
 }
 
 /**
+ * Compress an image data URL to max 1024px with sharpen filter for OCR.
+ * Falls back to the original if sharp fails.
+ */
+async function compressImageForVision(imageDataUrl: string): Promise<string> {
+  try {
+    if (!imageDataUrl.startsWith('data:image/')) return imageDataUrl
+    if (imageDataUrl.length < 50000) return imageDataUrl // already small
+
+    const mimeMatch = imageDataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/i)
+    if (!mimeMatch) return imageDataUrl
+    const buffer = Buffer.from(mimeMatch[2], 'base64')
+
+    const sharp = (await import('sharp')).default
+    const compressed = await sharp(buffer)
+      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+      .sharpen({ sigma: 1.0, flat: 1.0, jagged: 0.5 })
+      .jpeg({ quality: 85, mozjpeg: true })
+      .toBuffer()
+
+    return `data:image/jpeg;base64,${compressed.toString('base64')}`
+  } catch (err) {
+    logger.warn('Aether · image compression failed, using original:', err instanceof Error ? err.message : err)
+    return imageDataUrl
+  }
+}
+
+/**
  * Analyze an image using ZAI.create() + createVision().
+ * Automatically compresses the image to 1024px with sharpen filter
+ * before upload for faster transmission and better OCR fidelity.
+ *
  * @param imageDataUrl - base64 data URL (data:image/...;base64,...)
  * @param prompt - the analysis prompt
  * @param timeoutMs - hard timeout (default 15s)
@@ -48,6 +78,9 @@ export async function analyzeImageWithCLI(
       return ''
     }
 
+    // Compress the image before sending to the VLM (1024px, sharpen, JPEG@85)
+    const compressedImage = await compressImageForVision(imageDataUrl)
+
     // Build the vision request
     const visionPromise = zai.chat.completions.createVision({
       messages: [
@@ -55,7 +88,7 @@ export async function analyzeImageWithCLI(
           role: 'user',
           content: [
             { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: imageDataUrl } },
+            { type: 'image_url', image_url: { url: compressedImage } },
           ],
         },
       ],

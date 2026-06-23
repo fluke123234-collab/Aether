@@ -143,13 +143,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (visionImage) {
-    // ── Compress the image before sending to the VLM for dramatically faster upload ──
-    const compressedImage = await compressImageForVision(visionImage)
     // ── LEAN VLM PAYLOAD: strip the full 60-memory text context block to avoid
     // text overcrowding. The VLM should focus on PIXELS, not text summaries.
     // Only send the user's question + URL context (if any).
+    // (Image compression happens inside analyzeImageWithCLI → tryVision)
     const leanVisionPrompt = urlContext + (question || 'Analyze this image.')
-    const raw = await tryVision(leanVisionPrompt, compressedImage, history)
+    const raw = await tryVision(leanVisionPrompt, visionImage, history)
     if (raw) {
       const parsed = parseAnswer(raw, memories)
       return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
@@ -196,42 +195,6 @@ async function scrapeUrl(url: string): Promise<string | null> {
   } catch (err) {
     logger.warn('Aether · URL scrape failed for', url, ':', err instanceof Error ? err.message : err)
     return null
-  }
-}
-
-// ════════════════════════════════════════════════════════════════
-// IMAGE COMPRESSION — shrinks base64 images before VLM upload for speed
-// while preserving text-contrast edges for high-fidelity OCR.
-// Uses sharp with: max 1024px, JPEG quality 85, sharpen filter enabled.
-// ════════════════════════════════════════════════════════════════
-async function compressImageForVision(imageDataUrl: string): Promise<string> {
-  try {
-    // Only process JPEG/PNG data URLs
-    if (!imageDataUrl.startsWith('data:image/')) return imageDataUrl
-    // Already small enough? Skip compression.
-    if (imageDataUrl.length < 50000) return imageDataUrl
-
-    // Extract the base64 payload + mime
-    const mimeMatch = imageDataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/i)
-    if (!mimeMatch) return imageDataUrl
-    const base64Data = mimeMatch[2]
-    const buffer = Buffer.from(base64Data, 'base64')
-
-    // Use sharp to resize (max 1024px for OCR fidelity) + sharpen text edges + JPEG@85
-    // The sharpen filter preserves character shapes for accurate text reading.
-    // Higher resolution (1024 vs 768) ensures fine print stays legible.
-    const sharp = (await import('sharp')).default
-    const compressed = await sharp(buffer)
-      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
-      .sharpen({ sigma: 1.0, flat: 1.0, jagged: 0.5 })  // Preserve text-contrast edges
-      .jpeg({ quality: 85, mozjpeg: true })  // mozjpeg for better compression at same quality
-      .toBuffer()
-
-    return `data:image/jpeg;base64,${compressed.toString('base64')}`
-  } catch (err) {
-    // If sharp fails for any reason, return the original uncompressed
-    logger.warn('Aether · image compression failed, using original:', err instanceof Error ? err.message : err)
-    return imageDataUrl
   }
 }
 
