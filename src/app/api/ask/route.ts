@@ -1,5 +1,16 @@
 /**
  * Aether · /api/ask — Ultra-Intelligent Reasoning Core
+ * ------------------------------------------------------------
+ * Smart pre-processing layer:
+ *  1. MULTIMODAL IMAGE: if the request includes an image payload (base64),
+ *     bypass text-only embeddings and route directly to the VLM with the
+ *     cognitive vision system prompt.
+ *  2. URL SCRAPING: if the question text contains URLs, scrape each one
+ *     via the page_reader function and inject the extracted content into
+ *     the LLM context so the AI can answer about the actual web page.
+ *  3. STANDARD FLOW: otherwise, fall back to the normal memory-context
+ *     retrieval loop (recency-based, 60 most recent memories).
+ *
  * Uses Z.ai engine (works on any host). Multi-turn conversation.
  * Only cites genuinely relevant memories.
  */
@@ -43,6 +54,22 @@ OUTPUT FORMAT:
 Respond with valid raw JSON only — no markdown code fences:
 {"answer":"Your response.","memoryIds":["id1","id2","id3","id4"]}`
 
+// ── Cognitive Vision System Prompt (for real-time image analysis in chat) ──
+const VISION_SYSTEM_PROMPT = `You are the advanced cognitive vision core of Aether. The user has provided an image within their private sanctuary. Do not speak like an ungrounded assistant; speak as an analytical extension of their memory.
+
+Read and transcribe all visible text or handwriting (OCR) flawlessly. Analyze structures, abstract diagrams, fine-grained details, UI screenshots, or deep background contextual clues.
+
+When answering questions about this image, maintain absolute accuracy. If a detail is blurry, cross-reference it with other patterns in the scene. Provide structured, clean, and beautifully spaced markdown answers that match the high-end calm identity of the application.
+
+You also have access to the user's past memories as background context. Use them to cross-reference what's in the image with what the user has previously kept. Never announce that you are reading from a database — blend context naturally.
+
+OUTPUT FORMAT:
+Respond with valid raw JSON only — no markdown code fences:
+{"answer":"Your response.","memoryIds":["id1","id2"]}`
+
+// ── URL detection regex ──
+const URL_REGEX = /(https?:\/\/[^\s]+)/g
+
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
@@ -51,23 +78,24 @@ export async function POST(req: NextRequest) {
   const { data: authData, error: authError } = await supabase.auth.getUser(token)
   if (authError || !authData.user) return NextResponse.json({ success: false, answer: '', memoryIds: [], error: 'unauthorized' } satisfies AskResponse, { status: 401 })
 
-  let body: { question?: unknown; history?: unknown }
+  let body: { question?: unknown; history?: unknown; image?: unknown }
   try { body = await req.json() } catch { return NextResponse.json({ success: false, answer: '', memoryIds: [], error: 'invalid_json' } satisfies AskResponse, { status: 400 }) }
 
   const question = typeof body.question === 'string' ? body.question.trim() : ''
-  if (!question) return NextResponse.json({ success: false, answer: '', memoryIds: [], error: 'empty_question' } satisfies AskResponse, { status: 400 })
+  const image = typeof body.image === 'string' && body.image.startsWith('data:image/') ? body.image : ''
+  if (!question && !image) return NextResponse.json({ success: false, answer: '', memoryIds: [], error: 'empty_question' } satisfies AskResponse, { status: 400 })
 
   const rawHistory = Array.isArray(body.history) ? body.history : []
   const history = rawHistory.filter((h): h is { role: 'user' | 'model'; text: string } => typeof h === 'object' && h !== null && (h.role === 'user' || h.role === 'model') && typeof h.text === 'string').slice(-8)
 
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
 
+  // ── Load memory context (always, so both vision and text flows can cite) ──
   const { data: rows, error: memError } = await userClient.from('memories').select('id, title, body, tags, metadata, created_at').eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(60)
   if (memError) return NextResponse.json({ success: false, answer: '', memoryIds: [], error: memError.message } satisfies AskResponse, { status: 500 })
 
   const memories: MemoryRef[] = (rows ?? []).map((r) => {
     const meta = r.metadata as { imageDescription?: string; searchKeywords?: string[] } | null
-    // If the memory has an image description, include it in the body so the AI can answer questions about it.
     const imageDesc = meta?.imageDescription?.trim()
     const keywords = meta?.searchKeywords?.length ? `\n[Keywords: ${meta.searchKeywords.join(', ')}]` : ''
     const body = imageDesc ? `${r.body || ''}\n[Image content: ${imageDesc}]${keywords}` : (r.body || '')
@@ -79,7 +107,40 @@ export async function POST(req: NextRequest) {
     contextBlock = `BACKGROUND CONTEXT — things the user has previously told you. Use these ONLY if relevant. Never announce you are reading this list:\n\n${memories.map((m) => `id=${m.id} | ${m.title}\n  ${m.body}`).join('\n\n')}\n\n---\n\n`
   }
 
-  const fullPrompt = contextBlock + question
+  // ════════════════════════════════════════════════════════════════
+  // PRE-PROCESSING LAYER
+  // ════════════════════════════════════════════════════════════════
+
+  // ── 1. URL SCRAPING: detect URLs in the question, scrape content ──
+  let urlContext = ''
+  const urls = question.match(URL_REGEX) || []
+  if (urls.length > 0) {
+    const scraped = await Promise.all(
+      urls.slice(0, 3).map(async (url) => {
+        const content = await scrapeUrl(url)
+        return content ? `[URL content from ${url}]:\n${content}` : null
+      })
+    )
+    const validScrapes = scraped.filter((s): s is string => s !== null)
+    if (validScrapes.length > 0) {
+      urlContext = `WEB CONTENT — the user shared these links. Use this extracted content to answer their question:\n\n${validScrapes.join('\n\n---\n\n')}\n\n---\n\n`
+    }
+  }
+
+  // ── 2. MULTIMODAL IMAGE: if image present, route to VLM ──
+  if (image) {
+    const fullPrompt = contextBlock + urlContext + (question || 'Analyze this image in the context of my sanctuary.')
+    const raw = await tryVision(fullPrompt, image, history)
+    if (raw) {
+      const parsed = parseAnswer(raw, memories)
+      return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
+    }
+    // If VLM fails, fall through to text-only flow with a note
+    logger.warn('Aether · VLM failed in /api/ask, falling back to text-only')
+  }
+
+  // ── 3. STANDARD TEXT FLOW (with URL context if any was scraped) ──
+  const fullPrompt = contextBlock + urlContext + question
   let raw: string | null = null
 
   // Try Gemini first
@@ -95,6 +156,71 @@ export async function POST(req: NextRequest) {
 
   const parsed = parseAnswer(raw, memories)
   return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
+}
+
+// ════════════════════════════════════════════════════════════════
+// URL SCRAPING — uses z-ai-web-dev-sdk page_reader function
+// ════════════════════════════════════════════════════════════════
+async function scrapeUrl(url: string): Promise<string | null> {
+  try {
+    const ZAIModule = await import('z-ai-web-dev-sdk')
+    const ZAI = ZAIModule.default
+    const zai = new ZAI({
+      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
+      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
+      token: process.env.ZAI_TOKEN || '',
+      chatId: process.env.ZAI_CHAT_ID || '',
+      userId: process.env.ZAI_USER_ID || '',
+    })
+    const result = await zai.functions.invoke('page_reader', { url })
+    const data = result?.data as { title?: string; text?: string; html?: string; publishedTime?: string } | undefined
+    if (!data) return null
+    // Prefer plain text, fall back to stripping HTML
+    const text = data.text?.trim() || (data.html ? data.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '')
+    if (!text) return null
+    const title = data.title ? `${data.title}\n` : ''
+    return `${title}${text.slice(0, 4000)}`.trim()
+  } catch (err) {
+    logger.warn('Aether · URL scrape failed for', url, ':', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// VISION (multimodal) — passes image + text directly to the VLM
+// ════════════════════════════════════════════════════════════════
+async function tryVision(fullPrompt: string, imageDataUrl: string, history: { role: 'user' | 'model'; text: string }[]): Promise<string | null> {
+  try {
+    const ZAIModule = await import('z-ai-web-dev-sdk')
+    const ZAI = ZAIModule.default
+    const zai = new ZAI({
+      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
+      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
+      token: process.env.ZAI_TOKEN || '',
+      chatId: process.env.ZAI_CHAT_ID || '',
+      userId: process.env.ZAI_USER_ID || '',
+    })
+    // Build multimodal messages: system prompt + history (text) + current (text+image)
+    const messages: Array<{ role: string; content: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> }> = [
+      { role: 'system', content: [{ type: 'text', text: VISION_SYSTEM_PROMPT }] },
+      ...history.map((h) => ({ role: h.role === 'user' ? 'user' : 'assistant', content: [{ type: 'text' as const, text: h.text }] })),
+      { role: 'user', content: [
+        { type: 'text', text: fullPrompt },
+        { type: 'image_url', image_url: { url: imageDataUrl } },
+      ] },
+    ]
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 30000)
+    const res = await zai.chat.completions.createVision({
+      messages: messages as never, // createVision typing is stricter than runtime
+      thinking: { type: 'disabled' },
+    })
+    clearTimeout(timeout)
+    return res.choices[0]?.message?.content ?? null
+  } catch (err) {
+    logger.warn('Aether · VLM in /api/ask failed:', err instanceof Error ? err.message : err)
+    return null
+  }
 }
 
 function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memoryIds: string[] } {
