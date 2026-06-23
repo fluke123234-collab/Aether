@@ -20,12 +20,12 @@ import {
   ArrowRight,
   Loader2,
   Heart,
-  LogOut,
+  Sun,
+  Moon,
   X,
   FolderX,
   Download,
   Trash2,
-  MoreHorizontal,
   type LucideIcon,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -38,7 +38,7 @@ import { AskAetherModal } from '@/components/aether/AskAetherModal'
 import { ProfileModal } from '@/components/aether/ProfileModal'
 import { Serendipity } from '@/components/aether/Serendipity'
 import { useVoiceCapture } from '@/hooks/use-voice-capture'
-import { initTheme } from '@/lib/theme-store'
+import { initTheme, useThemeStore } from '@/lib/theme-store'
 import type { MemoryRow } from '@/lib/types'
 import { logger } from '@/lib/logger'
 
@@ -120,6 +120,9 @@ function TheGlow() {
 function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenProfile: () => void }) {
   const user = useAuthStore((s) => s.user)
   const openModal = useAuthStore((s) => s.openModal)
+  const theme = useThemeStore((s) => s.theme)
+  const toggleTheme = useThemeStore((s) => s.toggle)
+  const isDark = theme === 'dark'
 
   return (
     <header className="sticky top-0 z-30 backdrop-blur-xl bg-[#FAFAFA]/70 dark:bg-[#09090B]/70 border-b border-zinc-100/60 dark:border-zinc-800/60">
@@ -150,6 +153,21 @@ function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenPr
 
         {/* Spacer for mobile */}
         <div className="flex-1 sm:hidden" />
+
+        {/* Theme toggle — sun/moon pill */}
+        <button
+          type="button"
+          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-pressed={isDark}
+          onClick={toggleTheme}
+          title={isDark ? 'Light mode' : 'Dark mode'}
+          className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 backdrop-blur-sm transition-all duration-300 hover:scale-105 hover:border-purple-400 hover:text-purple-500 active:scale-95"
+        >
+          {/* Sun (visible in light) */}
+          <Sun className={`absolute h-[18px] w-[18px] transition-all duration-300 ${isDark ? 'rotate-90 scale-0 opacity-0' : 'rotate-0 scale-100 opacity-100'}`} />
+          {/* Moon (visible in dark) */}
+          <Moon className={`absolute h-[18px] w-[18px] transition-all duration-300 ${isDark ? 'rotate-0 scale-100 opacity-100' : '-rotate-90 scale-0 opacity-0'}`} />
+        </button>
 
         {/* Account pill — reactive to session */}
         {user ? (
@@ -296,7 +314,7 @@ function FloatingCapsule({
           </button>
         </div>
       )}
-      <div className="group flex items-center gap-1 rounded-full border border-zinc-100 dark:border-zinc-800 bg-white p-1.5 pl-6 shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-100 dark:border-zinc-800">
+      <div className="aether-glass-capsule group flex items-center gap-1 rounded-full border border-zinc-100 dark:border-zinc-800 bg-white p-1.5 pl-6 shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-100 dark:border-zinc-800">
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -1064,7 +1082,7 @@ export default function Home() {
       <TheGlow />
       <TopRail onOpenAsk={() => setAskOpen(true)} onOpenProfile={() => setProfileOpen(true)} />
 
-      <main className="flex flex-1 flex-col gap-20 px-0 pb-40 pt-20 sm:pt-28">
+      <main className="flex flex-1 flex-col gap-20 px-0 pb-40 pt-28 sm:pt-40">
         <HeroGreeting />
         <RecapBlock onReadRecap={() => ensureAuthenticated(() => setRecapOpen(true))} />
         <Collections memories={memories} activeFolder={activeFolder} onSelectFolder={setActiveFolder} />

@@ -12,7 +12,7 @@ export function ProfileModal({ open, onClose }: { open: boolean; onClose: () => 
   const user = useAuthStore((s) => s.user)
   const signOut = useAuthStore((s) => s.signOut)
   const theme = useThemeStore((s) => s.theme)
-  const toggleTheme = useThemeStore((s) => s.toggleTheme)
+  const toggleTheme = useThemeStore((s) => s.toggle)
   const [name, setName] = useState('')
   const [notifications, setNotifications] = useState(false)
   const [exporting, setExporting] = useState(false)
