@@ -50,18 +50,12 @@ Cite memory ids in memoryIds if their facts were used or relevant. Be generous w
 OUTPUT: valid raw JSON only, no code fences:
 {"answer":"...","memoryIds":["id1","id2"]}`
 
-// ── Cognitive Vision System Prompt — strict accuracy, zero hallucination ──
-const VISION_SYSTEM_PROMPT = `You are an infallible visual analysis core. Zero room for error.
+// ── Cognitive Vision System Prompt — infallible spatial precision ──
+const VISION_SYSTEM_PROMPT = `You are an infallible, micro-precision visual analysis engine operating inside a quiet digital sanctuary. You are looking directly at the raw pixel data provided in the payload. Do not summarize loosely, do not guess, and do not reference adjacent text logs.
 
-HARD CONSTRAINTS:
-- Examine raw pixels with micro-precision.
-- Do NOT guess. Do NOT summarize loosely. Do NOT make assumptions.
-- Read text strings (OCR), model numbers, UI components, code lines, hardware labels EXACTLY as printed.
-- If a detail is illegible, state "illegible" — never fabricate.
-- Cross-reference blurry details against other visible patterns before reporting.
-- Answers must be dense, factual, and structured.
+Scan the pixels for exact text strings, hardware labels, interface structures, motherboard text, serial codes, or fine print. Read the details EXACTLY as they are printed. If a specific component name or model is requested, zoom in mentally on that exact region of the image, interpret the text characters with 100% fidelity, and return a dense, perfectly accurate markdown response.
 
-You have background memory context for cross-referencing. Never announce reading from a database.
+If a detail is illegible, state "illegible" — never fabricate or approximate.
 
 OUTPUT: valid raw JSON only, no code fences:
 {"answer":"...","memoryIds":["id1","id2"]}`
@@ -153,13 +147,16 @@ export async function POST(req: NextRequest) {
   if (visionImage) {
     // ── Compress the image before sending to the VLM for dramatically faster upload ──
     const compressedImage = await compressImageForVision(visionImage)
-    const fullPrompt = contextBlock + urlContext + (question || 'Analyze this image.')
-    const raw = await tryVision(fullPrompt, compressedImage, history)
+    // ── LEAN VLM PAYLOAD: strip the full 60-memory text context block to avoid
+    // text overcrowding. The VLM should focus on PIXELS, not text summaries.
+    // Only send the user's question + URL context (if any) + a minimal memory pointer.
+    const leanVisionPrompt = urlContext + (question || 'Analyze this image.')
+    const raw = await tryVision(leanVisionPrompt, compressedImage, history)
     if (raw) {
       const parsed = parseAnswer(raw, memories)
       return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
     }
-    // If VLM fails, fall through to text-only flow
+    // If VLM fails, fall through to text-only flow (graceful degradation, no 500)
     logger.warn('Aether · VLM failed in /api/ask, falling back to text-only')
   }
 
@@ -212,6 +209,8 @@ async function scrapeUrl(url: string): Promise<string | null> {
 
 // ════════════════════════════════════════════════════════════════
 // IMAGE COMPRESSION — shrinks base64 images before VLM upload for speed
+// while preserving text-contrast edges for high-fidelity OCR.
+// Uses sharp with: max 1024px, JPEG quality 85, sharpen filter enabled.
 // ════════════════════════════════════════════════════════════════
 async function compressImageForVision(imageDataUrl: string): Promise<string> {
   try {
@@ -226,12 +225,14 @@ async function compressImageForVision(imageDataUrl: string): Promise<string> {
     const base64Data = mimeMatch[2]
     const buffer = Buffer.from(base64Data, 'base64')
 
-    // Use sharp to resize (max 768px on longest edge) + re-encode as JPEG @ 0.8
-    // This dramatically reduces upload time and round-trip API latency.
+    // Use sharp to resize (max 1024px for OCR fidelity) + sharpen text edges + JPEG@85
+    // The sharpen filter preserves character shapes for accurate text reading.
+    // Higher resolution (1024 vs 768) ensures fine print stays legible.
     const sharp = (await import('sharp')).default
     const compressed = await sharp(buffer)
-      .resize(768, 768, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 80 })
+      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+      .sharpen({ sigma: 1.0, flat: 1.0, jagged: 0.5 })  // Preserve text-contrast edges
+      .jpeg({ quality: 85, mozjpeg: true })  // mozjpeg for better compression at same quality
       .toBuffer()
 
     return `data:image/jpeg;base64,${compressed.toString('base64')}`
@@ -244,6 +245,8 @@ async function compressImageForVision(imageDataUrl: string): Promise<string> {
 
 // ════════════════════════════════════════════════════════════════
 // VISION (multimodal) — passes image + text directly to the VLM
+// Hard 15s timeout via Promise.race — if the VLM bottlenecks, returns
+// null so the caller gracefully falls back to text-only routing.
 // ════════════════════════════════════════════════════════════════
 async function tryVision(fullPrompt: string, imageDataUrl: string, history: { role: 'user' | 'model'; text: string }[]): Promise<string | null> {
   try {
@@ -265,14 +268,16 @@ async function tryVision(fullPrompt: string, imageDataUrl: string, history: { ro
         { type: 'image_url', image_url: { url: imageDataUrl } },
       ] },
     ]
-    // 15s timeout — fail fast so the text fallback kicks in quickly
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 15000)
-    const res = await zai.chat.completions.createVision({
+    // Hard 15s timeout via Promise.race — the SDK doesn't accept AbortSignal,
+    // so we race the VLM call against a timeout promise. If the timeout wins,
+    // we return null and the caller falls back to text-only gracefully.
+    const visionPromise = zai.chat.completions.createVision({
       messages: messages as never, // createVision typing is stricter than runtime
       thinking: { type: 'disabled' },
     })
-    clearTimeout(timeout)
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000))
+    const res = await Promise.race([visionPromise, timeoutPromise])
+    if (!res) return null
     return res.choices[0]?.message?.content ?? null
   } catch (err) {
     logger.warn('Aether · VLM in /api/ask failed:', err instanceof Error ? err.message : err)
