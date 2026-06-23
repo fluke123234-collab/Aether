@@ -531,12 +531,8 @@ function MemoryCard({
   onDelete: (m: MemoryRow) => void
   onAskAboutImage: (image: string) => void
 }) {
-  // Prefer AI tags from the metadata JSONB; fall back to the top-level tags column.
-  const pills =
-    (memory.metadata?.tags?.length ? memory.metadata.tags : memory.tags) ?? []
   const processing = memory.processing === true
   const imageData = memory.metadata?.imageData
-  const imageDesc = memory.metadata?.imageDescription
   const audioData = memory.metadata?.audioData
   const [showImage, setShowImage] = useState(false)
 
@@ -604,37 +600,6 @@ function MemoryCard({
       <p className="mb-5 font-display text-[15px] leading-relaxed text-zinc-600 dark:text-zinc-300">
         {memory.body}
       </p>
-
-      {/* AI image description — clean, subtle */}
-      {!processing && imageDesc && (
-        <div className="mb-4 rounded-xl border border-zinc-200/50 dark:border-zinc-800/80 bg-gradient-to-br from-zinc-50/80 to-purple-50/20 dark:from-zinc-800/50 dark:to-purple-500/5 px-4 py-3">
-          <div className="mb-1 flex items-center gap-1.5">
-            <ImageIcon className="h-3 w-3 text-zinc-400 dark:text-zinc-500" />
-            <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">AI image analysis</span>
-          </div>
-          <p className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{imageDesc}</p>
-        </div>
-      )}
-
-      {!processing && memory.summary && (
-        <div className="mb-4 flex gap-2 rounded-xl bg-purple-50/50 dark:bg-purple-500/10 px-3 py-2.5">
-          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-purple-400 dark:text-purple-400" />
-          <p className="text-xs italic leading-relaxed text-purple-700/70 dark:text-purple-300/80">{memory.summary}</p>
-        </div>
-      )}
-
-      {pills.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {pills.map((p) => (
-            <span
-              key={p}
-              className="text-xs bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-300 font-medium px-3 py-1 rounded-full"
-            >
-              {p}
-            </span>
-          ))}
-        </div>
-      )}
 
       {/* Action row: insight / ask-about-image / PDF / delete — appears on hover */}
       {!processing && (

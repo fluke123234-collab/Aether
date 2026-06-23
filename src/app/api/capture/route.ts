@@ -158,15 +158,15 @@ export async function POST(req: NextRequest) {
       ? aiData.tags
           .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
           .map((t) => t.trim())
-          .slice(0, 3)
+          .slice(0, 5)  // Allow up to 5 contextual tags for richer search indexing
       : []
     // ── Ensure image memories always have the 'image' tag for auto-categorization ──
     if (hasImage && !tags.includes('image')) {
-      tags = ['image', ...tags].slice(0, 3)
+      tags = ['image', ...tags].slice(0, 5)
     }
     // ── Ensure we always have at least one meaningful tag ──
     if (tags.length === 0) {
-      tags = hasImage ? ['image', 'capture'] : (hasAudio ? ['voice', 'capture'] : ['capture'])
+      tags = hasImage ? ['image', 'capture', 'visual'] : (hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note'])
     }
     // Use AI-corrected body if available, otherwise keep the original.
     const correctedBody =

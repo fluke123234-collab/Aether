@@ -22,11 +22,11 @@ const ZAI_BASE_URL = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1'
 
 const ENRICHMENT_PROMPT = `You are Aether's memory curator. Given a raw captured thought, return metadata as valid raw JSON only. No markdown code blocks.
 
-Be extremely brief. Title max 5 words, Title Case, no trailing punctuation. Summary 1 sentence max 15 words, proper punctuation. 1-3 tags, lowercase.
+Be extremely brief. Title max 5 words, Title Case, no trailing punctuation. Summary 1 sentence max 15 words, proper punctuation. Generate 5 highly contextual tags (lowercase, single words or short hyphenated phrases) that capture the key topics, themes, and entities — these power semantic search so be specific and comprehensive.
 
 ALSO: fix the body text — correct spelling, add proper capitalization and punctuation (periods, commas, apostrophes). Keep the user's original words but make it grammatically correct.
 
-Return exactly: {"title":"...","summary":"...","tags":["tag1","tag2"],"body":"corrected body text with proper punctuation"}`
+Return exactly: {"title":"...","summary":"...","tags":["tag1","tag2","tag3","tag4","tag5"],"body":"corrected body text with proper punctuation"}`
 
 /* ── Instant heuristic fallback — no API call needed ── */
 function fallbackAnalysis(content: string): MemoryAnalysis {

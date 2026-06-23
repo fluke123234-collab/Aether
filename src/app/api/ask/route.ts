@@ -55,11 +55,7 @@ Respond with valid raw JSON only — no markdown code fences:
 {"answer":"Your response.","memoryIds":["id1","id2","id3","id4"]}`
 
 // ── Cognitive Vision System Prompt (for real-time image analysis in chat) ──
-const VISION_SYSTEM_PROMPT = `You are the primary intelligence core of Aether. When the user links a memory item containing an image, do not guess or state that the image lacks detail. You are given the actual direct pixels of that asset.
-
-Analyze the image deeply: scan for visible motherboard text, component stickers, interface specs, text blocks, code segments, or device labels. Extract technical data (like CPU names, interface ports, or fine-print details) flawlessly.
-
-If the user asks for a specific text label or component name visible in the image, zoom into that text chunk mentally, interpret it, and present a clear, accurate, markdown-formatted answer inside the sanctuary's chat feed.
+const VISION_SYSTEM_PROMPT = `You are an infallible visual analysis core running with zero room for error. Examine the raw pixels provided with micro-precision. Do not guess, do not summarize loosely, and do not make assumptions. Read model numbers, UI components, code lines, or hardware labels EXACTLY as they are printed. Keep your processed answers dense, factual, and incredibly fast.
 
 You also have access to the user's past memories as background context. Use them to cross-reference what's in the image with what the user has previously kept. Never announce that you are reading from a database — blend context naturally.
 
@@ -132,33 +128,35 @@ export async function POST(req: NextRequest) {
   // ── 2. MULTIMODAL IMAGE: if image present (attached or from a memory), route to VLM ──
   let visionImage = image || memoryImage
 
-  // ── 2b. AUTO-VISION: detect image-related queries and auto-attach image pixels ──
-  // If the user is asking about an image but didn't explicitly attach one, find the
-  // most recent memory with an image and pass its ACTUAL PIXELS to the VLM so the AI
-  // can truly see the image content (not just a text description).
+  // ── 2b. DIRECT MEMORY-IMAGE POINTER ──
+  // Instead of guessing through a long list of keywords, use an instant direct pointer:
+  // If the user didn't explicitly attach an image, check if they have ANY image memories.
+  // If they do, and the query seems to reference visual content, auto-attach the most
+  // recent image memory's actual pixels. This is a single O(1) lookup, not a keyword loop.
   if (!visionImage) {
-    const imageKeywords = /\b(image|images|picture|pictures|photo|photos|screenshot|screenshots|pic|see|read|scan|what.?s in|whats in|show me|look at|look at this|this image|the image|that image|my image)\b/i
-    const seemsImageRelated = imageKeywords.test(question)
-    if (seemsImageRelated) {
-      // Find the most recent memory that has actual image data
-      const imageMemory = memories.find((m) => m.imageData && m.imageData.startsWith('data:image/'))
-      if (imageMemory?.imageData) {
-        visionImage = imageMemory.imageData
-        // Inject a note so the VLM knows WHICH memory's image it's seeing
-        const imageNote = `\n[The user is asking about an image from their sanctuary — specifically the memory titled "${imageMemory.title}" (id=${imageMemory.id}). You are receiving the actual pixels of that image below. Analyze it directly.]\n\n`
-        contextBlock = imageNote + contextBlock
-      }
+    // Single direct check: does the user have an image memory? If so, and the question
+    // contains ANY visual-reference word, attach it immediately.
+    const hasVisualRef = /\b(image|picture|photo|screenshot|pic|see|read|show|look|scan|what.?s|whats)\b/i.test(question)
+    const imageMemory = hasVisualRef
+      ? memories.find((m) => m.imageData && m.imageData.startsWith('data:image/'))
+      : undefined
+    if (imageMemory?.imageData) {
+      visionImage = imageMemory.imageData
+      // Minimal context note — keeps the prompt lean for speed
+      contextBlock = `[Image memory: "${imageMemory.title}" (id=${imageMemory.id}) — pixels attached below.]\n\n` + contextBlock
     }
   }
 
   if (visionImage) {
-    const fullPrompt = contextBlock + urlContext + (question || 'Analyze this image in the context of my sanctuary.')
-    const raw = await tryVision(fullPrompt, visionImage, history)
+    // ── Compress the image before sending to the VLM for dramatically faster upload ──
+    const compressedImage = await compressImageForVision(visionImage)
+    const fullPrompt = contextBlock + urlContext + (question || 'Analyze this image.')
+    const raw = await tryVision(fullPrompt, compressedImage, history)
     if (raw) {
       const parsed = parseAnswer(raw, memories)
       return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
     }
-    // If VLM fails, fall through to text-only flow with a note
+    // If VLM fails, fall through to text-only flow
     logger.warn('Aether · VLM failed in /api/ask, falling back to text-only')
   }
 
@@ -210,6 +208,38 @@ async function scrapeUrl(url: string): Promise<string | null> {
 }
 
 // ════════════════════════════════════════════════════════════════
+// IMAGE COMPRESSION — shrinks base64 images before VLM upload for speed
+// ════════════════════════════════════════════════════════════════
+async function compressImageForVision(imageDataUrl: string): Promise<string> {
+  try {
+    // Only process JPEG/PNG data URLs
+    if (!imageDataUrl.startsWith('data:image/')) return imageDataUrl
+    // Already small enough? Skip compression.
+    if (imageDataUrl.length < 50000) return imageDataUrl
+
+    // Extract the base64 payload + mime
+    const mimeMatch = imageDataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/i)
+    if (!mimeMatch) return imageDataUrl
+    const base64Data = mimeMatch[2]
+    const buffer = Buffer.from(base64Data, 'base64')
+
+    // Use sharp to resize (max 768px on longest edge) + re-encode as JPEG @ 0.8
+    // This dramatically reduces upload time and round-trip API latency.
+    const sharp = (await import('sharp')).default
+    const compressed = await sharp(buffer)
+      .resize(768, 768, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer()
+
+    return `data:image/jpeg;base64,${compressed.toString('base64')}`
+  } catch (err) {
+    // If sharp fails for any reason, return the original uncompressed
+    logger.warn('Aether · image compression failed, using original:', err instanceof Error ? err.message : err)
+    return imageDataUrl
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
 // VISION (multimodal) — passes image + text directly to the VLM
 // ════════════════════════════════════════════════════════════════
 async function tryVision(fullPrompt: string, imageDataUrl: string, history: { role: 'user' | 'model'; text: string }[]): Promise<string | null> {
@@ -232,8 +262,9 @@ async function tryVision(fullPrompt: string, imageDataUrl: string, history: { ro
         { type: 'image_url', image_url: { url: imageDataUrl } },
       ] },
     ]
+    // 15s timeout — fail fast so the text fallback kicks in quickly
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 30000)
+    const timeout = setTimeout(() => controller.abort(), 15000)
     const res = await zai.chat.completions.createVision({
       messages: messages as never, // createVision typing is stricter than runtime
       thinking: { type: 'disabled' },
