@@ -29,6 +29,21 @@ export type MemoryAnalysis = {
 }
 
 /**
+ * Extract the JSON object from CLI output that may contain
+ * non-JSON prefix lines (like '🚀 Initializing Z-AI SDK...').
+ */
+function extractJson(stdout: string): string | null {
+  if (!stdout || !stdout.trim()) return null
+  // Find the first '{' and extract from there to the matching '}'
+  const start = stdout.indexOf('{')
+  if (start === -1) return null
+  // Find the last '}' to get the complete JSON object
+  const end = stdout.lastIndexOf('}')
+  if (end === -1 || end <= start) return null
+  return stdout.slice(start, end + 1)
+}
+
+/**
  * Analyze text using the z-ai CLI chat command.
  * @param content - the raw text to analyze
  * @param timeoutMs - hard timeout (default 10s)
@@ -51,16 +66,22 @@ export async function analyzeTextWithCLI(
       }
     )
 
-    // Parse the JSON response from stdout
+    // The CLI outputs non-JSON prefix lines (🚀 Initializing...) to stdout
+    // before the actual JSON. Extract just the JSON object.
+    const jsonStr = extractJson(stdout)
+    if (!jsonStr) {
+      logger.warn('Aether · text CLI: no JSON found in stdout')
+      return null
+    }
+
     try {
-      const json = JSON.parse(stdout)
+      const json = JSON.parse(jsonStr)
       const raw = json?.choices?.[0]?.message?.content
       if (typeof raw === 'string' && raw.trim()) {
         return raw.trim()
       }
-    } catch {
-      // If JSON parse fails, return raw stdout
-      if (stdout.trim()) return stdout.trim()
+    } catch (parseErr) {
+      logger.warn('Aether · text CLI JSON parse failed:', parseErr instanceof Error ? parseErr.message : parseErr)
     }
 
     return null

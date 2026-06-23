@@ -124,8 +124,12 @@ export async function POST(req: NextRequest) {
   ])
 
   // If we got an image description, re-enrich with the full context.
+  // This generates a proper title + tags FROM the image content (not just 'Image capture').
   let finalAiResponse = aiResponseString
   if (imageDescription) {
+    // Pass the full VLM description to the text enrichment so the AI can
+    // generate a contextual title (e.g., 'PC Build Specs') and relevant tags
+    // (e.g., ['technology', 'pc-parts', 'cpu', 'hardware', 'intel']).
     const fullText = [content, `[Image content: ${imageDescription}]`].filter(Boolean).join('\n\n')
     finalAiResponse = await analyzeMemoryText(fullText)
   } else if (hasImage && !content) {
@@ -150,9 +154,11 @@ export async function POST(req: NextRequest) {
     }
 
     const title =
-      typeof aiData.title === 'string' && aiData.title.trim()
+      typeof aiData.title === 'string' && aiData.title.trim() && aiData.title.trim() !== 'Image capture'
         ? aiData.title.trim().slice(0, 80)
-        : (hasImage ? 'Image capture' : 'Untitled Thought')
+        : (hasImage && imageDescription
+          ? imageDescription.slice(0, 60).trim().replace(/\s+/g, ' ')
+          : (hasImage ? 'Image capture' : 'Untitled Thought'))
     const summary =
       typeof aiData.summary === 'string' ? aiData.summary.trim().slice(0, 280) : ''
     let tags: string[] = Array.isArray(aiData.tags)

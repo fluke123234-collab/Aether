@@ -20,6 +20,21 @@ import { logger } from './logger'
 const execFileAsync = promisify(execFile)
 
 /**
+ * Extract the JSON object from CLI output that may contain
+ * non-JSON prefix lines (like '🚀 Initializing Z-AI SDK...').
+ */
+function extractJson(stdout: string): string | null {
+  if (!stdout || !stdout.trim()) return null
+  // Find the first '{' and extract from there to the matching '}'
+  const start = stdout.indexOf('{')
+  if (start === -1) return null
+  // Find the last '}' to get the complete JSON object
+  const end = stdout.lastIndexOf('}')
+  if (end === -1 || end <= start) return null
+  return stdout.slice(start, end + 1)
+}
+
+/**
  * Analyze an image using the z-ai CLI vision command.
  * @param imageDataUrl - base64 data URL (data:image/...;base64,...)
  * @param prompt - the analysis prompt
@@ -61,16 +76,22 @@ export async function analyzeImageWithCLI(
       }
     )
 
-    // Parse the JSON response from stdout
+    // The CLI outputs non-JSON prefix lines (🚀 Initializing...) to stdout
+    // before the actual JSON. Extract just the JSON object.
+    const jsonStr = extractJson(stdout)
+    if (!jsonStr) {
+      logger.warn('Aether · VLM CLI: no JSON found in stdout')
+      return ''
+    }
+
     try {
-      const json = JSON.parse(stdout)
+      const json = JSON.parse(jsonStr)
       const content = json?.choices?.[0]?.message?.content
       if (typeof content === 'string' && content.trim()) {
         return content.trim()
       }
-    } catch {
-      // If JSON parse fails, return the raw stdout (might be plain text)
-      if (stdout.trim()) return stdout.trim().slice(0, 4000)
+    } catch (parseErr) {
+      logger.warn('Aether · VLM CLI JSON parse failed:', parseErr instanceof Error ? parseErr.message : parseErr)
     }
 
     return ''
