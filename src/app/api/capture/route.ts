@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { analyzeMemoryText } from '@/lib/gemini'
+import { analyzeImageWithCLI } from '@/lib/vlm'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -261,35 +262,10 @@ Structure your response as:
 
 Output plain text, no JSON. Be exhaustive and relational — this text will be embedded for natural language search.`
 
-  try {
-    const ZAIModule = await import('z-ai-web-dev-sdk')
-    const ZAI = ZAIModule.default
-    // Construct directly — bypasses ZAI.create() which reads from a config
-    // file that doesn't exist on Vercel.
-    const zai = new ZAI({
-      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
-      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
-      token: process.env.ZAI_TOKEN || '',
-      chatId: process.env.ZAI_CHAT_ID || '',
-      userId: process.env.ZAI_USER_ID || '',
-    })
-    const res = await zai.chat.completions.createVision({
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: VLM_PROMPT },
-            { type: 'image_url', image_url: { url: imageDataUrl } },
-          ],
-        },
-      ],
-      thinking: { type: 'disabled' },
-    })
-    return res.choices[0]?.message?.content ?? ''
-  } catch (err) {
-    logger.warn('Aether · VLM (SDK) failed:', err instanceof Error ? err.message : err)
-    return ''
-  }
+  // Use the z-ai CLI for reliable image analysis (the SDK's createVision
+  // fails silently on serverless platforms). The CLI is proven to work
+  // and returns in ~4-5 seconds.
+  return analyzeImageWithCLI(imageDataUrl, VLM_PROMPT, 15000)
 }
 
 /* ── Auto-classify a memory into a life area ── */

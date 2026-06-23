@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { analyzeImageWithCLI } from '@/lib/vlm'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -240,45 +241,18 @@ async function compressImageForVision(imageDataUrl: string): Promise<string> {
 }
 
 // ════════════════════════════════════════════════════════════════
-// VISION (multimodal) — passes image + text directly to the VLM
-// Hard 15s timeout via Promise.race — if the VLM bottlenecks, returns
-// null so the caller gracefully falls back to text-only routing.
+// VISION (multimodal) — uses the z-ai CLI for reliable image analysis
+// The SDK's createVision() fails silently on serverless platforms.
+// The CLI is proven to work and returns in ~4-5 seconds.
+// Hard 15s timeout — if it bottlenecks, returns null so the caller
+// gracefully falls back to text-only routing (no 500 crash).
 // ════════════════════════════════════════════════════════════════
-async function tryVision(fullPrompt: string, imageDataUrl: string, history: { role: 'user' | 'model'; text: string }[]): Promise<string | null> {
-  try {
-    const ZAIModule = await import('z-ai-web-dev-sdk')
-    const ZAI = ZAIModule.default
-    const zai = new ZAI({
-      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
-      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
-      token: process.env.ZAI_TOKEN || '',
-      chatId: process.env.ZAI_CHAT_ID || '',
-      userId: process.env.ZAI_USER_ID || '',
-    })
-    // Build multimodal messages: system prompt + history (text) + current (text+image)
-    const messages: Array<{ role: string; content: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> }> = [
-      { role: 'system', content: [{ type: 'text', text: VISION_SYSTEM_PROMPT }] },
-      ...history.map((h) => ({ role: h.role === 'user' ? 'user' : 'assistant', content: [{ type: 'text' as const, text: h.text }] })),
-      { role: 'user', content: [
-        { type: 'text', text: fullPrompt },
-        { type: 'image_url', image_url: { url: imageDataUrl } },
-      ] },
-    ]
-    // Hard 15s timeout via Promise.race — the SDK doesn't accept AbortSignal,
-    // so we race the VLM call against a timeout promise. If the timeout wins,
-    // we return null and the caller falls back to text-only gracefully.
-    const visionPromise = zai.chat.completions.createVision({
-      messages: messages as never, // createVision typing is stricter than runtime
-      thinking: { type: 'disabled' },
-    })
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000))
-    const res = await Promise.race([visionPromise, timeoutPromise])
-    if (!res) return null
-    return res.choices[0]?.message?.content ?? null
-  } catch (err) {
-    logger.warn('Aether · VLM in /api/ask failed:', err instanceof Error ? err.message : err)
-    return null
-  }
+async function tryVision(fullPrompt: string, imageDataUrl: string, _history: { role: 'user' | 'model'; text: string }[]): Promise<string | null> {
+  // Build the full prompt with the vision system prompt + user question
+  const combinedPrompt = `${VISION_SYSTEM_PROMPT}\n\nUSER QUESTION: ${fullPrompt}\n\nRespond with valid raw JSON only:\n{"answer":"...","memoryIds":["id1","id2"]}`
+
+  const result = await analyzeImageWithCLI(imageDataUrl, combinedPrompt, 15000)
+  return result || null
 }
 
 function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memoryIds: string[] } {

@@ -1,6 +1,6 @@
-/** Aether · /api/analyze-image — VLM image analysis via z-ai-web-dev-sdk */
+/** Aether · /api/analyze-image — VLM image analysis via z-ai CLI */
 import { NextRequest, NextResponse } from 'next/server'
-import { logger } from '@/lib/logger'
+import { analyzeImageWithCLI } from '@/lib/vlm'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,35 +23,8 @@ export async function POST(req: NextRequest) {
   const image = typeof body.image === 'string' ? body.image : ''
   if (!image || !image.startsWith('data:image/')) return NextResponse.json({ success: false, description: '', error: 'no_image' }, { status: 400 })
 
-  try {
-    const ZAIModule = await import('z-ai-web-dev-sdk')
-    const ZAI = ZAIModule.default
-    // Construct directly — bypasses ZAI.create() which reads from a config
-    // file that doesn't exist on Vercel.
-    const zai = new ZAI({
-      baseUrl: process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1',
-      apiKey: process.env.ZAI_API_KEY || 'Z.ai',
-      token: process.env.ZAI_TOKEN || '',
-      chatId: process.env.ZAI_CHAT_ID || '',
-      userId: process.env.ZAI_USER_ID || '',
-    })
-    const res = await zai.chat.completions.createVision({
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: VLM_PROMPT },
-            { type: 'image_url', image_url: { url: image } },
-          ],
-        },
-      ],
-      thinking: { type: 'disabled' },
-    })
-    const desc = res.choices[0]?.message?.content ?? ''
-    if (desc) return NextResponse.json({ success: true, description: desc })
-  } catch (err) {
-    logger.warn('Aether · VLM failed:', err instanceof Error ? err.message : err)
-  }
+  const desc = await analyzeImageWithCLI(image, VLM_PROMPT, 15000)
+  if (desc) return NextResponse.json({ success: true, description: desc })
 
   return NextResponse.json({ success: false, description: '', error: 'Could not analyze the image.' }, { status: 500 })
 }
