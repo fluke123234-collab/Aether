@@ -206,14 +206,16 @@ export async function POST(req: NextRequest) {
 
 /* ── Analyze an image via the z-ai-web-dev-sdk VLM (createVision) ── */
 async function analyzeImage(imageDataUrl: string): Promise<string> {
-  const VLM_PROMPT = `Analyze this image with extreme detail and accuracy. This is critical — be thorough.
+  const VLM_PROMPT = `Analyze this image within the context of a personal thought sanctuary. Act as a cognitive extension. Do not just list items. Extract handwritten text (OCR), identify the emotional vibe, describe any background notes, documents, or scenery, and generate a dense list of relational keywords. Return a comprehensive text summary that will be stored directly inside the memory's embedding vector so it can be perfectly retrieved via semantic natural language search later.
 
-1. EXTRACT ALL TEXT: Every word, number, price, label, spec, title, heading visible in the image. Transcribe verbatim, preserving exact numbers and prices.
-2. DESCRIBE CONTENT: What is shown? Products, parts, documents, receipts, screenshots, diagrams? List each item with its details (name, price, specs, quantities).
-3. KEYWORDS: List 5-10 keywords that describe this image (for searchability).
-4. SUMMARIZE: One sentence summary of what this image contains.
+Structure your response as:
+1. OCR TEXT: Transcribe every word, number, label, price, heading, and handwritten note visible. Preserve exact figures.
+2. SCENE & CONTENT: What is shown — products, documents, receipts, screenshots, diagrams, photos, scenery? Describe each item with its details (name, price, specs, quantities, colors, textures).
+3. EMOTIONAL VIBE: The mood or feeling the image conveys (e.g., "calm minimalism", "urgent clutter", "warm nostalgia"). One phrase.
+4. RELATIONAL KEYWORDS: 8-15 dense keywords and short phrases that capture concepts, objects, themes, and entities — optimized for semantic search retrieval.
+5. SEMANTIC SUMMARY: 2-3 sentences weaving the content, vibe, and key entities into a rich narrative description.
 
-Output plain text, no JSON. Be exhaustive — every detail matters. If there are prices, list them. If there are part names, list them. If there are specs, list them.`
+Output plain text, no JSON. Be exhaustive and relational — this text will be embedded for natural language search.`
 
   try {
     const ZAIModule = await import('z-ai-web-dev-sdk')

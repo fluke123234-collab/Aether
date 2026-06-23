@@ -12,6 +12,7 @@ export type MemoryMetadata = {
   type?: string
   connections?: string[]
   imageDescription?: string
+  searchKeywords?: string[]
   imageData?: string
   audioData?: string
 } | null
@@ -23,8 +24,10 @@ export type MemoryRow = {
   summary: string | null
   category: string | null
   tags: string[] | null
+  metadata: MemoryMetadata
   processing: boolean | null
   user_id: string | null
-  metadata: MemoryMetadata
+  view_count?: number | null
+  last_viewed_at?: string | null
   created_at: string
 }

@@ -33,6 +33,8 @@ alter table public.memories add column if not exists metadata    jsonb;
 alter table public.memories add column if not exists processing  boolean      not null default false;
 alter table public.memories add column if not exists user_id     text;
 alter table public.memories add column if not exists created_at  timestamptz  not null default now();
+alter table public.memories add column if not exists view_count  integer      not null default 0;
+alter table public.memories add column if not exists last_viewed_at timestamptz;
 
 -- 2. Row Level Security ---------------------------------------
 alter table public.memories enable row level security;

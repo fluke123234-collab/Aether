@@ -51,6 +51,18 @@ export function AskAetherModal({ open, memories, onClose, onFocusMemory }: { ope
       if (token !== tokenRef.current) return
       if (!res.ok || !json.success) { if (res.status === 401) toast.error('Your session has expired — please sign in again.'); else toast.error('Aether could not answer right now.'); setLoading(false); return }
       setTurns((prev) => [...prev, { question, answer: json.answer, memoryIds: json.memoryIds }]); setLoading(false)
+      // ── Search Resonance Hook: fire-and-forget increment view_count
+      // for each memory the LLM surfaced as a relevant reference. ──
+      if (json.memoryIds.length > 0) {
+        for (const mid of json.memoryIds) {
+          if (mid.startsWith('temp-')) continue
+          fetch('/api/track-view', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ id: mid, source: 'ask_reference' }),
+          }).catch(() => {})
+        }
+      }
     } catch { if (token !== tokenRef.current) return; toast.error('Aether is not reachable right now.'); setLoading(false) }
   }
 

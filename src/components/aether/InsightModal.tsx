@@ -20,6 +20,14 @@ export function InsightModal({ open, memoryId, memoryTitle, onClose }: { open: b
       const { data: { session } } = await supabase.auth.getSession()
       if (token !== tokenRef.current) return
       if (!session?.user) { toast.error('Please sign in to read insights.'); return }
+      // ── Resonance hook: user engaged with this memory via insight ──
+      if (!memoryId.startsWith('temp-')) {
+        fetch('/api/track-view', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ id: memoryId, source: 'insight' }),
+        }).catch(() => {})
+      }
       try {
         const res = await fetch('/api/insight', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ id: memoryId }) })
         if (token !== tokenRef.current) return

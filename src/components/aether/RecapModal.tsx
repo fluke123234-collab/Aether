@@ -12,6 +12,8 @@ type RecapData = {
   distillation: string
   insights: string[]
   quiet?: boolean
+  sparse?: boolean
+  mindfulPrompt?: string
   error?: string
 }
 
@@ -87,26 +89,29 @@ export function RecapModal({ open, onClose }: { open: boolean; onClose: () => vo
               </div>
             ) : data ? (
               <>
-                {data.quiet && <div className="mb-4 flex items-center gap-2 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 px-4 py-2.5 text-xs font-medium text-zinc-500 dark:text-zinc-500"><Sparkles className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500" />No thoughts captured in the last 24 hours.</div>}
+                {data.quiet && <div className="mb-4 flex items-center gap-2 rounded-2xl bg-zinc-50 dark:bg-zinc-800/50 px-4 py-2.5 text-xs font-medium text-zinc-500 dark:text-zinc-400"><Sparkles className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500" />No thoughts captured in the last 24 hours.</div>}
+                {data.sparse && <div className="mb-4 flex items-center gap-2 rounded-2xl bg-purple-50 dark:bg-purple-500/10 px-4 py-2.5 text-xs font-medium text-purple-600 dark:text-purple-300"><Lightbulb className="h-3.5 w-3.5" />A quiet day — here is a prompt to reflect on.</div>}
                 <div className="mb-6 flex gap-6">
                   <div><div className="font-display text-2xl leading-none text-zinc-900 dark:text-zinc-50">{data.stats.captured}</div><div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-500">today</div></div>
                   <div><div className="font-display text-2xl leading-none text-zinc-900 dark:text-zinc-50">{data.stats.total}</div><div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-500">kept</div></div>
                   <div><div className="font-display text-2xl leading-none text-zinc-900 dark:text-zinc-50">{data.stats.recalled}</div><div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-500">recalled</div></div>
                 </div>
                 <div className="mb-6">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-purple-400"><Sparkles className="h-3.5 w-3.5" />Distillation</div>
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-purple-400"><Sparkles className="h-3.5 w-3.5" />{data.sparse ? 'Mindful prompt' : 'Distillation'}</div>
                   <p className="font-display text-lg leading-relaxed tracking-tight text-zinc-800 dark:text-zinc-200">{data.distillation}</p>
                 </div>
-                <div>
-                  <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500"><Lightbulb className="h-3.5 w-3.5" />Quiet insights</div>
-                  <ul className="space-y-2.5">
-                    {data.insights.map((insight, i) => (
-                      <li key={i} className="flex gap-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50/60 px-4 py-2.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
-                        <span className="mt-0.5 font-display text-purple-400">{i + 1}</span><span>{insight}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                {data.insights.length > 0 && (
+                  <div>
+                    <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500"><Lightbulb className="h-3.5 w-3.5" />Quiet insights</div>
+                    <ul className="space-y-2.5">
+                      {data.insights.map((insight, i) => (
+                        <li key={i} className="flex gap-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 px-4 py-2.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+                          <span className="mt-0.5 font-display text-purple-400">{i + 1}</span><span>{insight}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </>
             ) : <div className="py-10 text-center text-sm text-zinc-400 dark:text-zinc-500">Could not load your recap.</div>}
           </div>
