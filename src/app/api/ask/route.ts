@@ -125,21 +125,17 @@ export async function POST(req: NextRequest) {
   // ── 2. MULTIMODAL IMAGE: if image present (attached or from a memory), route to VLM ──
   let visionImage = image || memoryImage
 
-  // ── 2b. DIRECT MEMORY-IMAGE POINTER ──
-  // Instead of guessing through a long list of keywords, use an instant direct pointer:
-  // If the user didn't explicitly attach an image, check if they have ANY image memories.
-  // If they do, and the query seems to reference visual content, auto-attach the most
-  // recent image memory's actual pixels. This is a single O(1) lookup, not a keyword loop.
+  // ── 2b. DIRECT MEDIA-INJECTION ROUTER ──
+  // ALWAYS attach image pixels when an image memory exists — do NOT gate on
+  // keyword detection. If the user has ANY image memory, pass its actual
+  // pixels to the VLM so the AI can truly SEE the content. This ensures
+  // questions like "what CPU is in that?" or "what's in my last memory?"
+  // route to the vision model, not the text-only fallback.
   if (!visionImage) {
-    // Single direct check: does the user have an image memory? If so, and the question
-    // contains ANY visual-reference word, attach it immediately.
-    const hasVisualRef = /\b(image|picture|photo|screenshot|pic|see|read|show|look|scan|what.?s|whats)\b/i.test(question)
-    const imageMemory = hasVisualRef
-      ? memories.find((m) => m.imageData && m.imageData.startsWith('data:image/'))
-      : undefined
+    const imageMemory = memories.find((m) => m.imageData && m.imageData.startsWith('data:image/'))
     if (imageMemory?.imageData) {
       visionImage = imageMemory.imageData
-      // Minimal context note — keeps the prompt lean for speed
+      // Minimal context pointer — keeps the prompt lean for speed
       contextBlock = `[Image memory: "${imageMemory.title}" (id=${imageMemory.id}) — pixels attached below.]\n\n` + contextBlock
     }
   }
@@ -149,7 +145,7 @@ export async function POST(req: NextRequest) {
     const compressedImage = await compressImageForVision(visionImage)
     // ── LEAN VLM PAYLOAD: strip the full 60-memory text context block to avoid
     // text overcrowding. The VLM should focus on PIXELS, not text summaries.
-    // Only send the user's question + URL context (if any) + a minimal memory pointer.
+    // Only send the user's question + URL context (if any).
     const leanVisionPrompt = urlContext + (question || 'Analyze this image.')
     const raw = await tryVision(leanVisionPrompt, compressedImage, history)
     if (raw) {

@@ -102,11 +102,11 @@ export async function POST(req: NextRequest) {
 
   // ── Step 2: do enrichment SYNCHRONOUSLY (after() may not run on Vercel) ──
   // Run image analysis + text enrichment IN PARALLEL for speed.
-  // Use 8s timeout for VLM (image analysis needs more time) and 4s for text.
+  // Use 12s timeout for VLM (image analysis needs more time for OCR) and 4s for text.
   const imagePromise = (hasImage && typeof body.image === 'string')
     ? Promise.race([
         analyzeImage(body.image).catch(() => ''),
-        new Promise<string>((resolve) => setTimeout(() => resolve(''), 8000))
+        new Promise<string>((resolve) => setTimeout(() => resolve(''), 12000))
       ])
     : Promise.resolve('')
 
@@ -169,10 +169,19 @@ export async function POST(req: NextRequest) {
       tags = hasImage ? ['image', 'capture', 'visual'] : (hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note'])
     }
     // Use AI-corrected body if available, otherwise keep the original.
-    const correctedBody =
+    // CRITICAL: For image memories, embed the full VLM image description into the
+    // body text so the text-only AI fallback in /api/ask can still "see" the image
+    // content. This ensures the AI can answer about image content even when the
+    // VLM call in /api/ask fails — the description is already in the text context.
+    let correctedBody =
       typeof aiData.body === 'string' && aiData.body.trim()
         ? aiData.body.trim().slice(0, 500)
         : finalContent
+
+    // ── For image memories: embed the VLM description into the body text ──
+    if (hasImage && imageDescription) {
+      correctedBody = `${correctedBody}\n\n[Image content: ${imageDescription}]`.slice(0, 1000)
+    }
 
     const memoryType = hasImage ? 'image' : classifyMemoryType(correctedBody)
     const allContent = [correctedBody, imageDescription].filter(Boolean).join(' ')
