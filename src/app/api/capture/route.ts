@@ -102,11 +102,11 @@ export async function POST(req: NextRequest) {
 
   // ── Step 2: do enrichment SYNCHRONOUSLY (after() may not run on Vercel) ──
   // Run image analysis + text enrichment IN PARALLEL for speed.
-  // Use 4s timeouts to stay within Vercel's 10s function limit.
+  // Use 8s timeout for VLM (image analysis needs more time) and 4s for text.
   const imagePromise = (hasImage && typeof body.image === 'string')
     ? Promise.race([
         analyzeImage(body.image).catch(() => ''),
-        new Promise<string>((resolve) => setTimeout(() => resolve(''), 4000))
+        new Promise<string>((resolve) => setTimeout(() => resolve(''), 8000))
       ])
     : Promise.resolve('')
 
@@ -127,6 +127,14 @@ export async function POST(req: NextRequest) {
   if (imageDescription) {
     const fullText = [content, `[Image content: ${imageDescription}]`].filter(Boolean).join('\n\n')
     finalAiResponse = await analyzeMemoryText(fullText)
+  } else if (hasImage && !content) {
+    // ── VLM failed and no user text — generate a fallback so the image isn't undescribed ──
+    finalAiResponse = JSON.stringify({
+      title: 'Image capture',
+      summary: 'A captured image. The vision analysis could not be completed at capture time — ask Aether about it later for a live analysis.',
+      tags: ['image', 'capture', 'visual'],
+      body: 'Image capture',
+    })
   }
 
   logger.info('AI enrichment output:', finalAiResponse)
@@ -143,15 +151,23 @@ export async function POST(req: NextRequest) {
     const title =
       typeof aiData.title === 'string' && aiData.title.trim()
         ? aiData.title.trim().slice(0, 80)
-        : 'Untitled Thought'
+        : (hasImage ? 'Image capture' : 'Untitled Thought')
     const summary =
       typeof aiData.summary === 'string' ? aiData.summary.trim().slice(0, 280) : ''
-    const tags: string[] = Array.isArray(aiData.tags)
+    let tags: string[] = Array.isArray(aiData.tags)
       ? aiData.tags
           .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
           .map((t) => t.trim())
           .slice(0, 3)
       : []
+    // ── Ensure image memories always have the 'image' tag for auto-categorization ──
+    if (hasImage && !tags.includes('image')) {
+      tags = ['image', ...tags].slice(0, 3)
+    }
+    // ── Ensure we always have at least one meaningful tag ──
+    if (tags.length === 0) {
+      tags = hasImage ? ['image', 'capture'] : (hasAudio ? ['voice', 'capture'] : ['capture'])
+    }
     // Use AI-corrected body if available, otherwise keep the original.
     const correctedBody =
       typeof aiData.body === 'string' && aiData.body.trim()
@@ -162,9 +178,14 @@ export async function POST(req: NextRequest) {
     const allContent = [correctedBody, imageDescription].filter(Boolean).join(' ')
     const searchKeywords = extractKeywords(allContent, tags)
 
+    // ── Always store imageDescription for image memories (fallback if VLM failed) ──
+    const finalImageDescription = imageDescription || (hasImage
+      ? 'A captured image. Use Ask Aether to analyze the actual content of this image.'
+      : undefined)
+
     const metadataObj: Record<string, unknown> = {
       title, summary, tags, type: memoryType,
-      imageDescription: imageDescription || undefined,
+      imageDescription: finalImageDescription,
       searchKeywords,
     }
     if (hasImage && typeof body.image === 'string') metadataObj.imageData = body.image

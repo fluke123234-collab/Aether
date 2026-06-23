@@ -130,7 +130,27 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 2. MULTIMODAL IMAGE: if image present (attached or from a memory), route to VLM ──
-  const visionImage = image || memoryImage
+  let visionImage = image || memoryImage
+
+  // ── 2b. AUTO-VISION: detect image-related queries and auto-attach image pixels ──
+  // If the user is asking about an image but didn't explicitly attach one, find the
+  // most recent memory with an image and pass its ACTUAL PIXELS to the VLM so the AI
+  // can truly see the image content (not just a text description).
+  if (!visionImage) {
+    const imageKeywords = /\b(image|images|picture|pictures|photo|photos|screenshot|screenshots|pic|see|read|scan|what.?s in|whats in|show me|look at|look at this|this image|the image|that image|my image)\b/i
+    const seemsImageRelated = imageKeywords.test(question)
+    if (seemsImageRelated) {
+      // Find the most recent memory that has actual image data
+      const imageMemory = memories.find((m) => m.imageData && m.imageData.startsWith('data:image/'))
+      if (imageMemory?.imageData) {
+        visionImage = imageMemory.imageData
+        // Inject a note so the VLM knows WHICH memory's image it's seeing
+        const imageNote = `\n[The user is asking about an image from their sanctuary — specifically the memory titled "${imageMemory.title}" (id=${imageMemory.id}). You are receiving the actual pixels of that image below. Analyze it directly.]\n\n`
+        contextBlock = imageNote + contextBlock
+      }
+    }
+  }
+
   if (visionImage) {
     const fullPrompt = contextBlock + urlContext + (question || 'Analyze this image in the context of my sanctuary.')
     const raw = await tryVision(fullPrompt, visionImage, history)
