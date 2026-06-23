@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { toast, Toaster as SonnerToaster } from 'sonner'
 import {
@@ -38,6 +38,8 @@ import { AskAetherModal } from '@/components/aether/AskAetherModal'
 import { ProfileModal } from '@/components/aether/ProfileModal'
 import { Serendipity } from '@/components/aether/Serendipity'
 import { useVoiceCapture } from '@/hooks/use-voice-capture'
+import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
+import { LiveWaveform, ReplayWaveform } from '@/components/aether/VoiceWaveform'
 import { initTheme, useThemeStore } from '@/lib/theme-store'
 import type { MemoryRow } from '@/lib/types'
 import { logger } from '@/lib/logger'
@@ -229,16 +231,22 @@ function FloatingCapsule({
 }) {
   const [value, setValue] = useState('')
   const [pendingImage, setPendingImage] = useState<string | null>(null)
+  // useVoiceCapture handles speech-to-text transcription (Web Speech API)
   const { listening, supported, start, stop, audioData } = useVoiceCapture()
+  // useVoiceRecorder handles native audio recording + real-time frequency analysis
+  const recorder = useVoiceRecorder()
+  const recorderReady = recorder.audioData && !recorder.listening
 
   const handleSubmit = () => {
     const text = value.trim()
-    if (!text && !pendingImage && !audioData) return
+    // Prefer the high-fidelity recorder audio if available; fall back to the legacy capture audio.
+    const finalAudio = recorderReady ? recorder.audioData : audioData
+    if (!text && !pendingImage && !finalAudio) return
     ensureAuthenticated(() => {
       if (pendingImage) {
         onCaptureWithImage(text, pendingImage)
-      } else if (audioData) {
-        onCaptureWithAudio(text || 'Voice note', audioData)
+      } else if (finalAudio) {
+        onCaptureWithAudio(text || 'Voice note', finalAudio)
       } else {
         onCapture(text)
       }
@@ -249,11 +257,19 @@ function FloatingCapsule({
 
   const handleVoice = () => {
     ensureAuthenticated(() => {
-      if (listening) { stop(); return }
+      if (listening || recorder.listening) {
+        stop()
+        recorder.stop()
+        return
+      }
       if (!supported) {
         toast('Voice capture needs Chrome or Safari.', { description: 'Your browser does not support speech recognition.' })
         return
       }
+      // Start BOTH the speech-to-text transcriber AND the native audio recorder.
+      // The recorder provides high-fidelity frequency data for the live waveform
+      // and a better-quality audio blob for storage.
+      recorder.start()
       const ok = start((text) => setValue(text))
       if (ok) toast('Listening…', { description: 'Speak — Aether is transcribing.' })
     })
@@ -315,23 +331,32 @@ function FloatingCapsule({
         </div>
       )}
       <div className="aether-glass-capsule group flex items-center gap-1 rounded-full border border-zinc-200/50 dark:border-zinc-800/80 bg-white p-1.5 pl-6 shadow-[0_8px_30px_rgb(0,0,0,0.015)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-200 dark:focus-within:border-purple-500/40">
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
-          }}
-          placeholder="Capture a thought, or ask Aether…"
-          className="h-12 flex-1 bg-transparent text-[15px] text-zinc-800 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-0"
-        />
+        {/* When recording, morph the input into a live audio deck */}
+        {listening || recorder.listening ? (
+          <div className="flex h-12 flex-1 items-center gap-3 px-1">
+            <span className="flex h-2 w-2 shrink-0 animate-pulse rounded-full bg-rose-500" />
+            <LiveWaveform frequencyData={recorder.frequencyData} barCount={28} />
+            <span className="shrink-0 text-xs font-medium text-purple-500 dark:text-purple-400">REC</span>
+          </div>
+        ) : (
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
+            }}
+            placeholder="Capture a thought, or ask Aether…"
+            className="h-12 flex-1 bg-transparent text-[15px] text-zinc-800 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-0"
+          />
+        )}
         <div className="flex items-center gap-0.5">
           <CapsuleAction icon={ImageIcon} label="Attach image" onClick={handleImagePick} active={!!pendingImage} />
           <CapsuleAction icon={Link2} label="Attach link" onClick={() => ensureAuthenticated(() => toast('Link attach is coming soon.'))} />
-          <CapsuleAction icon={Mic} label={listening ? 'Stop listening' : 'Voice capture'} onClick={handleVoice} active={listening} />
+          <CapsuleAction icon={Mic} label={listening || recorder.listening ? 'Stop recording' : 'Voice capture'} onClick={handleVoice} active={listening || recorder.listening} />
           <button
             aria-label="Capture thought"
             onClick={handleSubmit}
-            disabled={!value.trim() && !pendingImage}
+            disabled={!value.trim() && !pendingImage && !recorderReady && !audioData}
             className="ml-1 flex h-11 w-11 items-center justify-center rounded-full bg-zinc-900 text-white transition-all duration-300 hover:bg-purple-600 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:scale-100"
           >
             <ArrowUp className="h-[18px] w-[18px]" />
@@ -511,14 +536,6 @@ function MemoryCard({
   const imageDesc = memory.metadata?.imageDescription
   const audioData = memory.metadata?.audioData
   const [showImage, setShowImage] = useState(false)
-  const audioRef = useRef<HTMLAudioElement>(null)
-  const [playing, setPlaying] = useState(false)
-
-  const toggleAudio = () => {
-    if (!audioRef.current) return
-    if (playing) { audioRef.current.pause(); setPlaying(false) }
-    else { audioRef.current.play(); setPlaying(true) }
-  }
 
   return (
     <article className="group rounded-2xl border border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-[#18181B] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.015)] dark:shadow-none transition-all duration-500 hover:shadow-[0_12px_60px_0_rgba(0,0,0,0.04)] dark:hover:shadow-none hover:-translate-y-0.5 hover:border-zinc-200 dark:hover:border-zinc-700/60">
@@ -574,41 +591,10 @@ function MemoryCard({
         </div>
       )}
 
-      {/* Voice note — clean waveform design */}
+      {/* Voice note — native waveform replay with progressive playhead tinting */}
       {audioData && (
         <div className="mb-4">
-          <audio ref={audioRef} src={audioData} onEnded={() => setPlaying(false)} className="hidden" />
-          <div className="flex items-center gap-3 rounded-xl border border-zinc-200/50 dark:border-zinc-800/60 bg-zinc-50/40 dark:bg-zinc-800/30 p-3 transition-all duration-300 hover:border-purple-200 dark:hover:border-purple-500/30 hover:bg-purple-50/30 dark:hover:bg-purple-500/5">
-            <button
-              onClick={toggleAudio}
-              aria-label={playing ? 'Pause voice note' : 'Play voice note'}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-500 text-white transition-all duration-300 hover:bg-purple-600 hover:scale-105 active:scale-95"
-            >
-              {playing ? (
-                <span className="flex gap-0.5">
-                  <span className="h-3 w-0.5 rounded-full bg-white" />
-                  <span className="h-3 w-0.5 rounded-full bg-white" />
-                </span>
-              ) : (
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-              )}
-            </button>
-            {/* Animated waveform bars */}
-            <div className="flex h-8 flex-1 items-center gap-0.5">
-              {Array.from({ length: 28 }).map((_, i) => (
-                <div
-                  key={i}
-                  className={`flex-1 rounded-full transition-all duration-300 ${playing ? 'bg-purple-400 animate-pulse' : 'bg-zinc-300 dark:bg-zinc-600'}`}
-                  style={{
-                    height: playing ? `${20 + Math.sin(i * 0.5) * 50 + Math.random() * 30}%` : `${15 + Math.sin(i * 0.3) * 25}%`,
-                    animationDelay: `${i * 50}ms`,
-                    animationDuration: '0.8s',
-                  }}
-                />
-              ))}
-            </div>
-            <span className="shrink-0 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">{playing ? 'Playing…' : 'Voice note'}</span>
-          </div>
+          <ReplayWaveform audioData={audioData} barCount={28} />
         </div>
       )}
 
