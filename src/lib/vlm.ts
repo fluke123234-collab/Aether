@@ -69,7 +69,7 @@ async function compressImageForVision(imageDataUrl: string): Promise<string> {
 export async function analyzeImageWithCLI(
   imageDataUrl: string,
   prompt: string,
-  timeoutMs = 15000
+  timeoutMs = 20000
 ): Promise<string> {
   try {
     const zai = await getZai()

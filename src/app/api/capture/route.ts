@@ -104,18 +104,18 @@ export async function POST(req: NextRequest) {
 
   // ── Step 2: do enrichment SYNCHRONOUSLY (after() may not run on Vercel) ──
   // Run image analysis + text enrichment IN PARALLEL for speed.
-  // Use 12s timeout for VLM (image analysis needs more time for OCR) and 4s for text.
+  // Use 15s timeout for VLM (image analysis needs more time for OCR) and 8s for text.
   const imagePromise = (hasImage && typeof body.image === 'string')
     ? Promise.race([
         analyzeImage(body.image).catch(() => ''),
-        new Promise<string>((resolve) => setTimeout(() => resolve(''), 12000))
+        new Promise<string>((resolve) => setTimeout(() => resolve(''), 15000))
       ])
     : Promise.resolve('')
 
   const textForEnrichment = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
   const enrichmentPromise = Promise.race([
     analyzeMemoryText(textForEnrichment),
-    new Promise<string>((resolve) => setTimeout(() => resolve(JSON.stringify({ title: textForEnrichment.slice(0, 60), summary: '', tags: ['capture'] })), 4000))
+    new Promise<string>((resolve) => setTimeout(() => resolve(JSON.stringify({ title: textForEnrichment.slice(0, 60), summary: '', tags: ['capture'] })), 8000))
   ])
 
   // Wait for both in parallel.
@@ -124,15 +124,18 @@ export async function POST(req: NextRequest) {
     enrichmentPromise,
   ])
 
-  // If we got an image description, re-enrich with the full context.
-  // This generates a proper title + tags FROM the image content (not just 'Image capture').
+  // If we got an image description, generate title+tags FROM the image content.
   let finalAiResponse = aiResponseString
   if (imageDescription) {
     // Pass the full VLM description to the text enrichment so the AI can
     // generate a contextual title (e.g., 'PC Build Specs') and relevant tags
     // (e.g., ['technology', 'pc-parts', 'cpu', 'hardware', 'intel']).
     const fullText = [content, `[Image content: ${imageDescription}]`].filter(Boolean).join('\n\n')
-    finalAiResponse = await analyzeMemoryText(fullText)
+    const reEnriched = await Promise.race([
+      analyzeMemoryText(fullText),
+      new Promise<string>((resolve) => setTimeout(() => resolve(aiResponseString), 8000))
+    ])
+    finalAiResponse = reEnriched
   } else if (hasImage && !content) {
     // ── VLM failed and no user text — generate a fallback so the image isn't undescribed ──
     finalAiResponse = JSON.stringify({

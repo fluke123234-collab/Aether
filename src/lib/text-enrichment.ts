@@ -45,7 +45,7 @@ async function getZai() {
  */
 export async function analyzeTextWithCLI(
   content: string,
-  timeoutMs = 10000
+  timeoutMs = 12000
 ): Promise<string | null> {
   const text = (content ?? '').trim()
   if (!text || text.length < 20) return null
