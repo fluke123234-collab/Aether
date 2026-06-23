@@ -13,10 +13,14 @@ type AskResponse = { success: boolean; answer: string; memoryIds: string[]; erro
 
 const URL_REGEX = /(https?:\/\/[^\s]+)/i
 
-export function AskAetherModal({ open, memories, onClose, onFocusMemory }: { open: boolean; memories: MemoryRow[]; onClose: () => void; onFocusMemory: (id: string) => void }) {
+export function AskAetherModal({ open, memories, initialImage, onClose, onFocusMemory }: { open: boolean; memories: MemoryRow[]; initialImage?: string | null; onClose: () => void; onFocusMemory: (id: string) => void }) {
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState('')
-  const [pendingImage, setPendingImage] = useState<string | null>(null)
+  const [pendingImage, setPendingImage] = useState<string | null>(initialImage ?? null)
+  // Track whether the pending image came from a memory (vs a fresh upload)
+  // so we can send it as `memoryImage` in the request body for the backend's
+  // automated context attachment logic.
+  const [imageFromMemory, setImageFromMemory] = useState(!!initialImage)
   const [loading, setLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -70,10 +74,11 @@ export function AskAetherModal({ open, memories, onClose, onFocusMemory }: { ope
           canvas.width = width
           canvas.height = height
           const ctx = canvas.getContext('2d')
-          if (!ctx) { setPendingImage(reader.result as string); return }
+          if (!ctx) { setPendingImage(reader.result as string); setImageFromMemory(false); return }
           ctx.drawImage(img, 0, 0, width, height)
           const compressed = canvas.toDataURL('image/jpeg', 0.8)
           setPendingImage(compressed)
+          setImageFromMemory(false) // Fresh upload, not from a memory
           toast('Image attached.', { description: 'Ask a question about it, or send it alone.' })
         }
       }
@@ -90,11 +95,19 @@ export function AskAetherModal({ open, memories, onClose, onFocusMemory }: { ope
     if ((!question && !image) || loading) return
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.user) { toast.error('Please sign in to ask Aether.'); return }
-    setInput(''); setPendingImage(null); setLoading(true)
+    setInput(''); setPendingImage(null); setImageFromMemory(false); setLoading(true)
     const token = ++tokenRef.current
     const history = turns.flatMap((t) => [{ role: 'user' as const, text: t.question }, { role: 'model' as const, text: t.answer }])
     try {
-      const res = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ question, history, image: image || undefined }) })
+      // Send as `memoryImage` when the image came from a memory's 'Ask about this image'
+      // button, so the backend vision route knows to treat it as a linked memory asset.
+      // Send as `image` for fresh uploads from the chat input.
+      const payload: { question: string; history: typeof history; image?: string; memoryImage?: string } = { question, history }
+      if (image) {
+        if (imageFromMemory) payload.memoryImage = image
+        else payload.image = image
+      }
+      const res = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify(payload) })
       if (token !== tokenRef.current) return
       const json = (await res.json()) as AskResponse
       if (token !== tokenRef.current) return

@@ -32,7 +32,7 @@ const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models
 const GROQ_API_KEY = process.env.GROQ_API_KEY || ''
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
 
-type MemoryRef = { id: string; title: string; body: string; tags: string[] | null; created_at: string }
+type MemoryRef = { id: string; title: string; body: string; tags: string[] | null; created_at: string; imageData?: string }
 type AskResponse = { success: boolean; answer: string; memoryIds: string[]; error?: string }
 
 const SYSTEM_PROMPT = `You are Aether, an ultra-premium, deeply intuitive, and highly intellectual digital companion. You are a fluid, advanced AI, not a static keyword tool. You never output robotic fallback disclaimers like "I am offline" or "Based on what you've kept, this touches on...". Talk like a brilliant, natural, supportive peer.
@@ -55,11 +55,11 @@ Respond with valid raw JSON only — no markdown code fences:
 {"answer":"Your response.","memoryIds":["id1","id2","id3","id4"]}`
 
 // ── Cognitive Vision System Prompt (for real-time image analysis in chat) ──
-const VISION_SYSTEM_PROMPT = `You are the advanced cognitive vision core of Aether. The user has provided an image within their private sanctuary. Do not speak like an ungrounded assistant; speak as an analytical extension of their memory.
+const VISION_SYSTEM_PROMPT = `You are the primary intelligence core of Aether. When the user links a memory item containing an image, do not guess or state that the image lacks detail. You are given the actual direct pixels of that asset.
 
-Read and transcribe all visible text or handwriting (OCR) flawlessly. Analyze structures, abstract diagrams, fine-grained details, UI screenshots, or deep background contextual clues.
+Analyze the image deeply: scan for visible motherboard text, component stickers, interface specs, text blocks, code segments, or device labels. Extract technical data (like CPU names, interface ports, or fine-print details) flawlessly.
 
-When answering questions about this image, maintain absolute accuracy. If a detail is blurry, cross-reference it with other patterns in the scene. Provide structured, clean, and beautifully spaced markdown answers that match the high-end calm identity of the application.
+If the user asks for a specific text label or component name visible in the image, zoom into that text chunk mentally, interpret it, and present a clear, accurate, markdown-formatted answer inside the sanctuary's chat feed.
 
 You also have access to the user's past memories as background context. Use them to cross-reference what's in the image with what the user has previously kept. Never announce that you are reading from a database — blend context naturally.
 
@@ -78,12 +78,14 @@ export async function POST(req: NextRequest) {
   const { data: authData, error: authError } = await supabase.auth.getUser(token)
   if (authError || !authData.user) return NextResponse.json({ success: false, answer: '', memoryIds: [], error: 'unauthorized' } satisfies AskResponse, { status: 401 })
 
-  let body: { question?: unknown; history?: unknown; image?: unknown }
+  let body: { question?: unknown; history?: unknown; image?: unknown; memoryImage?: unknown }
   try { body = await req.json() } catch { return NextResponse.json({ success: false, answer: '', memoryIds: [], error: 'invalid_json' } satisfies AskResponse, { status: 400 }) }
 
   const question = typeof body.question === 'string' ? body.question.trim() : ''
   const image = typeof body.image === 'string' && body.image.startsWith('data:image/') ? body.image : ''
-  if (!question && !image) return NextResponse.json({ success: false, answer: '', memoryIds: [], error: 'empty_question' } satisfies AskResponse, { status: 400 })
+  // memoryImage: image data URL passed from the frontend when the user asks about a specific memory's image
+  const memoryImage = typeof body.memoryImage === 'string' && body.memoryImage.startsWith('data:image/') ? body.memoryImage : ''
+  if (!question && !image && !memoryImage) return NextResponse.json({ success: false, answer: '', memoryIds: [], error: 'empty_question' } satisfies AskResponse, { status: 400 })
 
   const rawHistory = Array.isArray(body.history) ? body.history : []
   const history = rawHistory.filter((h): h is { role: 'user' | 'model'; text: string } => typeof h === 'object' && h !== null && (h.role === 'user' || h.role === 'model') && typeof h.text === 'string').slice(-8)
@@ -95,11 +97,11 @@ export async function POST(req: NextRequest) {
   if (memError) return NextResponse.json({ success: false, answer: '', memoryIds: [], error: memError.message } satisfies AskResponse, { status: 500 })
 
   const memories: MemoryRef[] = (rows ?? []).map((r) => {
-    const meta = r.metadata as { imageDescription?: string; searchKeywords?: string[] } | null
+    const meta = r.metadata as { imageDescription?: string; searchKeywords?: string[]; imageData?: string } | null
     const imageDesc = meta?.imageDescription?.trim()
     const keywords = meta?.searchKeywords?.length ? `\n[Keywords: ${meta.searchKeywords.join(', ')}]` : ''
     const body = imageDesc ? `${r.body || ''}\n[Image content: ${imageDesc}]${keywords}` : (r.body || '')
-    return { id: r.id, title: r.title || 'Untitled', body: body.slice(0, 1000), tags: r.tags, created_at: r.created_at }
+    return { id: r.id, title: r.title || 'Untitled', body: body.slice(0, 1000), tags: r.tags, created_at: r.created_at, imageData: meta?.imageData }
   })
 
   let contextBlock = ''
@@ -127,10 +129,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── 2. MULTIMODAL IMAGE: if image present, route to VLM ──
-  if (image) {
+  // ── 2. MULTIMODAL IMAGE: if image present (attached or from a memory), route to VLM ──
+  const visionImage = image || memoryImage
+  if (visionImage) {
     const fullPrompt = contextBlock + urlContext + (question || 'Analyze this image in the context of my sanctuary.')
-    const raw = await tryVision(fullPrompt, image, history)
+    const raw = await tryVision(fullPrompt, visionImage, history)
     if (raw) {
       const parsed = parseAnswer(raw, memories)
       return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)

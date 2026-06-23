@@ -432,7 +432,7 @@ function RecapBlock({ onReadRecap }: { onReadRecap: () => void }) {
    ────────────────────────────────────────────────────────────── */
 
 function MemoryFeed({
-  memories, loading, favorites, onToggleFavorite, onInsight, onDownloadPdf, onDelete, activeFolder, onClearFolder, highlightId,
+  memories, loading, favorites, onToggleFavorite, onInsight, onDownloadPdf, onDelete, activeFolder, onClearFolder, highlightId, onAskAboutImage,
 }: {
   memories: MemoryRow[]
   loading: boolean
@@ -444,6 +444,7 @@ function MemoryFeed({
   activeFolder: string | null
   onClearFolder: () => void
   highlightId: string | null
+  onAskAboutImage: (image: string) => void
 }) {
   return (
     <section className="mx-auto w-full max-w-6xl px-5">
@@ -509,6 +510,7 @@ function MemoryFeed({
                 onInsight={onInsight}
                 onDownloadPdf={onDownloadPdf}
                 onDelete={onDelete}
+                onAskAboutImage={onAskAboutImage}
               />
             </div>
           ))}
@@ -519,7 +521,7 @@ function MemoryFeed({
 }
 
 function MemoryCard({
-  memory, favorited, onToggleFavorite, onInsight, onDownloadPdf, onDelete,
+  memory, favorited, onToggleFavorite, onInsight, onDownloadPdf, onDelete, onAskAboutImage,
 }: {
   memory: MemoryRow
   favorited: boolean
@@ -527,6 +529,7 @@ function MemoryCard({
   onInsight: (m: MemoryRow) => void
   onDownloadPdf: (m: MemoryRow) => void
   onDelete: (m: MemoryRow) => void
+  onAskAboutImage: (image: string) => void
 }) {
   // Prefer AI tags from the metadata JSONB; fall back to the top-level tags column.
   const pills =
@@ -633,7 +636,7 @@ function MemoryCard({
         </div>
       )}
 
-      {/* Action row: insight / PDF / delete — appears on hover */}
+      {/* Action row: insight / ask-about-image / PDF / delete — appears on hover */}
       {!processing && (
         <div className="mt-4 flex items-center justify-end gap-1 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
           <button
@@ -643,6 +646,16 @@ function MemoryCard({
           >
             <Sparkles className="h-4 w-4" />
           </button>
+          {/* Ask about this image — only shown when the memory has an image attachment */}
+          {imageData && (
+            <button
+              aria-label="Ask Aether about this image"
+              onClick={() => ensureAuthenticated(() => onAskAboutImage(imageData))}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:scale-110 hover:bg-purple-50 dark:hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400 active:scale-95"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+          )}
           <button
             aria-label="Download as PDF"
             onClick={() => ensureAuthenticated(() => onDownloadPdf(memory))}
@@ -795,6 +808,7 @@ export default function Home() {
   const [insightOpen, setInsightOpen] = useState(false)
   const [insightMemory, setInsightMemory] = useState<MemoryRow | null>(null)
   const [askOpen, setAskOpen] = useState(false)
+  const [askInitialImage, setAskInitialImage] = useState<string | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const user = useAuthStore((s) => s.user)
@@ -1084,6 +1098,7 @@ export default function Home() {
           activeFolder={activeFolder}
           onClearFolder={() => setActiveFolder(null)}
           highlightId={highlightId}
+          onAskAboutImage={(image) => { setAskInitialImage(image); setAskOpen(true) }}
         />
       </main>
 
@@ -1094,7 +1109,7 @@ export default function Home() {
       <AuthModal />
       <RecapModal open={recapOpen} onClose={() => setRecapOpen(false)} />
       <InsightModal open={insightOpen} memoryId={insightMemory?.id ?? null} memoryTitle={insightMemory?.title ?? ''} onClose={() => setInsightOpen(false)} />
-      <AskAetherModal open={askOpen} memories={memories} onClose={() => setAskOpen(false)} onFocusMemory={(id) => { setActiveFolder(null); setHighlightId(id); setTimeout(() => setHighlightId((c) => c === id ? null : c), 4000); setTimeout(() => { const el = document.getElementById(`memory-${id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100); }} />
+      <AskAetherModal key={askInitialImage ?? 'none'} open={askOpen} memories={memories} initialImage={askInitialImage} onClose={() => { setAskOpen(false); setAskInitialImage(null) }} onFocusMemory={(id) => { setActiveFolder(null); setHighlightId(id); setTimeout(() => setHighlightId((c) => c === id ? null : c), 4000); setTimeout(() => { const el = document.getElementById(`memory-${id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100); }} />
       <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
 
       <SonnerToaster
