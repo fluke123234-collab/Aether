@@ -213,10 +213,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, id: memoryId, enriched: true })
   } catch (parseError) {
     logger.error('Enrichment parse failed:', parseError instanceof Error ? parseError.message : parseError)
-    // Mark as not processing so it doesn't hang.
+    // ── Bulletproof fallback: ensure the row never hangs or stays untagged ──
+    const fallbackTags = hasImage ? ['image', 'capture', 'visual'] : (hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note'])
+    const fallbackTitle = finalContent.slice(0, 60) || (hasImage ? 'Image capture' : 'Untitled Thought')
     await userClient
       .from('memories')
-      .update({ processing: false })
+      .update({
+        processing: false,
+        tags: fallbackTags,
+        title: fallbackTitle,
+        category: hasImage ? 'image' : 'note',
+        metadata: {
+          title: fallbackTitle,
+          summary: '',
+          tags: fallbackTags,
+          type: hasImage ? 'image' : 'note',
+          imageDescription: hasImage ? 'A captured visual asset.' : undefined,
+        },
+      })
       .eq('id', memoryId)
       .then(() => undefined, () => undefined)
   }

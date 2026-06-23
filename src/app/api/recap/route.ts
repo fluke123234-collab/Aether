@@ -110,9 +110,13 @@ export async function POST(req: NextRequest) {
       if (process.env.ZAI_CHAT_ID) headers['X-Chat-Id'] = process.env.ZAI_CHAT_ID
       if (process.env.ZAI_USER_ID) headers['X-User-Id'] = process.env.ZAI_USER_ID
       if (process.env.ZAI_TOKEN) headers['X-Token'] = process.env.ZAI_TOKEN
+      // 12s timeout — fail fast so the user doesn't wait on a hanging recap
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 12000)
       const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
         method: 'POST',
         headers,
+        signal: controller.signal,
         body: JSON.stringify({
           messages: [
             { role: 'system', content: RECAP_PROMPT },
@@ -121,13 +125,20 @@ export async function POST(req: NextRequest) {
           thinking: { type: 'disabled' },
         }),
       })
+      clearTimeout(timeout)
       if (res.ok) {
         const json = await res.json()
         const raw = json?.choices?.[0]?.message?.content ?? ''
         try {
           const p = JSON.parse(raw)
           if (typeof p.distillation === 'string') distillation = p.distillation.slice(0, 500)
-          if (Array.isArray(p.insights)) insights = p.insights.filter((s: unknown) => typeof s === 'string').slice(0, 3)
+          if (Array.isArray(p.insights)) {
+            // Enforce exactly 3 distinct insights
+            insights = p.insights
+              .filter((s: unknown) => typeof s === 'string' && s.trim().length > 0)
+              .slice(0, 3)
+              .map((s: string) => s.trim())
+          }
         } catch { /* keep defaults */ }
       }
     } catch (err) {
