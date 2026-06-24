@@ -1,41 +1,95 @@
 /**
- * Aether · /api/capture — Groq-powered multimodal capture
+ * Aether · /api/capture — Fully inlined, no imports, direct fetch
  * ------------------------------------------------------------
- * 1. Instant row insert
- * 2. Groq Vision (llama-3.2-11b-vision-preview, 8s timeout)
- * 3. 3-line split: title, tags, body
- * 4. Single DB update
+ * All ZAI logic inline. No SDK, no ai.ts, no vlm.ts.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { aiVision, aiText, stripCodeFences } from '@/lib/ai'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-const VISION_PROMPT = `You are an infallible, micro-precision visual analysis core operating inside a quiet digital sanctuary. Look directly at the raw pixels provided.
+const ZAI_BASE_URL = 'https://internal-api.z.ai/v1'
+const ZAI_API_KEY = 'Z.ai'
+const ZAI_CHAT_ID = 'chat-29bf48db-839a-48ab-a402-026a1fd7cc19'
+const ZAI_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMmZkYWFkZmItZjAwMC00ODY3LWJiMDktZGM5Yjg1YTY5NzVlIiwiY2hhdF9pZCI6ImNoYXQtMjliZjQ4ZGItODM5YS00OGFiLWE0MDItMDI2YTFmZDdjYzE5IiwicGxhdGZvcm0iOiJ6YWkifQ.fMoxcqePFaXXPFrxh1ikzPOFYaFpyytyjc1QM8Nckf8'
+const ZAI_USER_ID = '2fdaadfb-f000-4867-bb09-dc9b85a6975e'
 
-Read and extract characters (OCR), interface components, hardware specifications, prices, labels, or structural layouts with absolute accuracy.
+function zaiHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${ZAI_API_KEY}`,
+    'X-Z-AI-From': 'Z',
+    'X-Chat-Id': ZAI_CHAT_ID,
+    'X-User-Id': ZAI_USER_ID,
+    'X-Token': ZAI_TOKEN,
+  }
+}
 
-Your output response MUST follow this exact string split layout profile:
-[Line 1: A clean, contextual title describing the asset in under 5 words]
-[Line 2: Exactly 5 dense search tags formatted like 'tag1, tag2, tag3, tag4, tag5']
-[Line 3+: A complete, deeply detailed narrative breakdown of everything printed or visible in the image]
+async function zaiVision(prompt: string, imageDataUrl: string, timeoutMs = 7000): Promise<string> {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    const res = await fetch(`${ZAI_BASE_URL}/chat/completions/vision`, {
+      method: 'POST', headers: zaiHeaders(), signal: controller.signal,
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: imageDataUrl } },
+        ]}],
+        thinking: { type: 'disabled' },
+      }),
+    })
+    clearTimeout(timeout)
+    if (!res.ok) return ''
+    const json = await res.json()
+    const content = json?.choices?.[0]?.message?.content
+    return typeof content === 'string' && content.trim() ? content.trim() : ''
+  } catch { return '' }
+}
 
-Do not include any preamble, JSON, or markdown formatting. Just the raw text in the exact layout above.`
+async function zaiText(messages: Array<{ role: string; content: string }>, timeoutMs = 5000): Promise<string | null> {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
+      method: 'POST', headers: zaiHeaders(), signal: controller.signal,
+      body: JSON.stringify({ messages, thinking: { type: 'disabled' } }),
+    })
+    clearTimeout(timeout)
+    if (!res.ok) return null
+    const json = await res.json()
+    const content = json?.choices?.[0]?.message?.content
+    return typeof content === 'string' && content.trim() ? content.trim() : null
+  } catch { return null }
+}
 
-const ENRICHMENT_PROMPT = `You are Aether's memory curator. Given a raw captured thought, return metadata as valid raw JSON only. No markdown code blocks.
+function stripFences(raw: string): string {
+  let c = raw.trim()
+  if (c.startsWith('```')) c = c.replace(/^```(?:json|text|html)?\s*/i, '').replace(/\s*```$/, '')
+  return c
+}
 
-Be extremely brief. Title max 5 words, Title Case. Summary 1 sentence max 15 words. Generate 5 highly contextual tags (lowercase).
+const VISION_PROMPT = `You are an infallible visual analysis core. Look at the raw pixels.
 
-Return exactly: {"title":"...","summary":"...","tags":["tag1","tag2","tag3","tag4","tag5"],"body":"corrected body text"}`
+Read and extract ALL text (OCR), components, labels, specs, prices with absolute accuracy.
+
+Your output MUST follow this exact layout:
+[Line 1: A clean title in under 5 words]
+[Line 2: Exactly 5 comma-separated tags like: tag1, tag2, tag3, tag4, tag5]
+[Line 3+: A complete detailed breakdown of everything visible]
+
+No JSON, no markdown. Just raw text in the exact layout above.`
+
+const ENRICHMENT_PROMPT = `You are Aether's memory curator. Return JSON only.
+Title max 5 words. Summary 1 sentence. 5 contextual tags.
+Return: {"title":"...","summary":"...","tags":["t1","t2","t3","t4","t5"],"body":"corrected text"}`
 
 export async function POST(req: NextRequest) {
   let body: { content?: unknown; image?: unknown; audio?: unknown }
@@ -50,18 +104,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'empty_content' }, { status: 400 })
   }
 
-  // ── Verify session ──
   const authHeader = req.headers.get('authorization')
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
   if (!token) return NextResponse.json({ success: false, error: 'unauthorized' }, { status: 401 })
 
-  const { data: authData, error: authError } = await supabase.auth.getUser(token)
-  if (authError || !authData.user) return NextResponse.json({ success: false, error: 'unauthorized' }, { status: 401 })
+  const { data: authData } = await supabase.auth.getUser(token)
+  if (!authData?.user) return NextResponse.json({ success: false, error: 'unauthorized' }, { status: 401 })
 
   const userId = authData.user.id
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
 
-  // ── Step 1: INSTANT ROW INSERT ──
+  // ── Instant row insert ──
   const finalContent = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
   const initialMetadata: Record<string, unknown> = {}
   if (hasImage && typeof body.image === 'string') initialMetadata.imageData = body.image
@@ -76,30 +129,27 @@ export async function POST(req: NextRequest) {
   }]).select().single()
 
   if (error || !data) {
-    logger.warn('Aether · capture insert failed:', error?.message)
     return NextResponse.json({ success: false, error: error?.message ?? 'insert_failed' }, { status: 500 })
   }
 
   const memoryId = data.id as string
+  const base64Payload = hasImage && typeof body.image === 'string' ? body.image : ''
 
   // ════════════════════════════════════════════════════════════════
-  // IMAGE PATH: ZAI Vision → 3-line split → DB update
+  // IMAGE PATH: VLM → 3-line split → DB update
   // ════════════════════════════════════════════════════════════════
-  if (hasImage && typeof body.image === 'string') {
-    const rawOutput = await aiVision(VISION_PROMPT, body.image, 8000)
+  if (hasImage && base64Payload) {
+    const rawOutput = await zaiVision(VISION_PROMPT, base64Payload, 7000)
 
     if (rawOutput) {
-      // ── Split the VLM output into 3 parts ──
       const lines = rawOutput.split('\n').map(l => l.trim()).filter(Boolean)
-
       let title = 'Image capture'
       let tags: string[] = ['image', 'capture', 'visual']
       let description = rawOutput
 
       if (lines.length >= 3) {
         title = lines[0].slice(0, 80)
-        const tagLine = lines[1].toLowerCase()
-        const parsedTags = tagLine.split(',').map(t => t.trim()).filter(Boolean).slice(0, 5)
+        const parsedTags = lines[1].toLowerCase().split(',').map(t => t.trim()).filter(Boolean).slice(0, 5)
         if (parsedTags.length >= 2) tags = ['image', ...parsedTags.filter(t => t !== 'image')].slice(0, 5)
         description = lines.slice(2).join('\n')
       } else if (lines.length === 1) {
@@ -115,7 +165,7 @@ export async function POST(req: NextRequest) {
         metadata: {
           title, summary: description.slice(0, 280), tags, type: 'image',
           imageDescription: description, searchKeywords: tags,
-          imageData: body.image,
+          imageData: base64Payload,
         },
       }).eq('id', memoryId)
 
@@ -124,7 +174,7 @@ export async function POST(req: NextRequest) {
     }
 
     // VLM failed — store fallback
-    logger.warn('Aether · Groq vision failed for capture, using fallback')
+    logger.warn('Aether · VLM failed for capture, using fallback')
     await userClient.from('memories').update({
       title: content ? content.slice(0, 60) : 'Image capture',
       body: `${content || 'Image capture'}\n\n[Image content: A captured image. Ask Aether to analyze it.]`,
@@ -136,24 +186,22 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // TEXT/AUDIO PATH: Groq Text enrichment (6s timeout)
+  // TEXT/AUDIO PATH: ZAI text enrichment (5s timeout)
   // ════════════════════════════════════════════════════════════════
   const textForEnrichment = content || (hasAudio ? 'Voice note' : '')
   let aiResponseString: string | null = null
 
   if (textForEnrichment.length >= 20) {
-    aiResponseString = await aiText([
+    aiResponseString = await zaiText([
       { role: 'system', content: ENRICHMENT_PROMPT },
       { role: 'user', content: textForEnrichment.slice(0, 500) },
-    ], 6000)
+    ], 5000)
   }
 
   try {
     let aiData: { title?: unknown; summary?: unknown; tags?: unknown; body?: unknown }
-
     if (aiResponseString) {
-      const cleaned = stripCodeFences(aiResponseString)
-      aiData = JSON.parse(cleaned)
+      aiData = JSON.parse(stripFences(aiResponseString))
     } else {
       aiData = { title: textForEnrichment.slice(0, 60), summary: '', tags: ['capture'] }
     }
