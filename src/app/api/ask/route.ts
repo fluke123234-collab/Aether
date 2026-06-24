@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { getZai } from '@/lib/vlm'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -44,14 +45,8 @@ Treat technical data like physical components, code strings, and labels with abs
 OUTPUT: valid raw JSON only, no code fences:
 {"answer":"...","memoryIds":["id1","id2"]}`
 
-// ── Unified ZAI instance ──
-let zaiInstance: Awaited<ReturnType<typeof import('z-ai-web-dev-sdk').default.create>> | null = null
-async function getZai() {
-  if (zaiInstance) return zaiInstance
-  const ZAIModule = await import('z-ai-web-dev-sdk')
-  zaiInstance = await ZAIModule.default.create()
-  return zaiInstance
-}
+// getZai() is imported from @/lib/vlm (uses `new ZAI(config)` with hardcoded
+// credentials — works on Vercel without .z-ai-config file)
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization')

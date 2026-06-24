@@ -104,23 +104,22 @@ export async function POST(req: NextRequest) {
   let distillation = 'Your day held a few quiet threads worth keeping.'
   let insights = ['The act of capturing is itself a form of attention.', 'Notice what recurs.', 'A thought kept is a thought honoured.']
 
-  // Use ZAI.create() — works with built-in defaults on any host
+  // Use getZai() from vlm.ts — uses `new ZAI(config)` with hardcoded credentials
   {
     try {
-      const ZAIModule = await import('z-ai-web-dev-sdk')
-      const ZAI = ZAIModule.default
-      const zai = await ZAI.create()
+      const { getZai } = await import('@/lib/vlm')
+      const zai = await getZai()
 
-      const chatPromise = zai.chat.completions.create({
+      const chatPromise = zai!.chat.completions.create({
         messages: [
           { role: 'system', content: RECAP_PROMPT },
           { role: 'user', content: memoryText },
         ],
       })
 
-      // 12s timeout
+      // 7s timeout
       const timeoutPromise = new Promise<null>((resolve) =>
-        setTimeout(() => resolve(null), 12000)
+        setTimeout(() => resolve(null), 7000)
       )
 
       const res = await Promise.race([chatPromise, timeoutPromise])

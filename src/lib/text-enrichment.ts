@@ -1,10 +1,11 @@
 /**
- * Aether · Text enrichment utility — uses ZAI.create() for reliable LLM calls
+ * Aether · Text enrichment utility — uses `new ZAI(config)` for reliable LLM calls
  * ------------------------------------------------------------
- * ZAI.create() uses the SDK's built-in default configuration which
- * works on any host (including Vercel). No env vars needed.
+ * Uses the shared getZai() from vlm.ts which constructs ZAI with
+ * hardcoded credentials — works on Vercel without .z-ai-config file.
  */
 
+import { getZai } from './vlm'
 import { logger } from './logger'
 
 const ENRICHMENT_PROMPT = `You are Aether's memory curator. Given a raw captured thought, return metadata as valid raw JSON only. No markdown code blocks.
@@ -22,30 +23,15 @@ export type MemoryAnalysis = {
   body?: string
 }
 
-let zaiInstance: Awaited<ReturnType<typeof import('z-ai-web-dev-sdk').default.create>> | null = null
-let zaiPromise: Promise<typeof zaiInstance> | null = null
-
-async function getZai() {
-  if (zaiInstance) return zaiInstance
-  if (zaiPromise) return zaiPromise
-  zaiPromise = (async () => {
-    const ZAIModule = await import('z-ai-web-dev-sdk')
-    const ZAI = ZAIModule.default
-    zaiInstance = await ZAI.create()
-    return zaiInstance
-  })()
-  return zaiPromise
-}
-
 /**
- * Analyze text using ZAI.create() + chat.completions.create().
+ * Analyze text using ZAI chat.completions.create() with hardcoded config.
  * @param content - the raw text to analyze
- * @param timeoutMs - hard timeout (default 10s)
+ * @param timeoutMs - hard timeout (default 6s)
  * @returns JSON string of the AI response, or null on failure
  */
 export async function analyzeTextWithCLI(
   content: string,
-  timeoutMs = 12000
+  timeoutMs = 6000
 ): Promise<string | null> {
   const text = (content ?? '').trim()
   if (!text || text.length < 20) return null
@@ -53,7 +39,7 @@ export async function analyzeTextWithCLI(
   try {
     const zai = await getZai()
     if (!zai) {
-      logger.warn('Aether · text enrichment: ZAI.create() returned null')
+      logger.warn('Aether · text enrichment: getZai() returned null')
       return null
     }
 

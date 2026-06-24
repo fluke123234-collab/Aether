@@ -1,33 +1,45 @@
 /**
- * Aether · VLM utility — ZAI.create() + createVision() with NO compression
+ * Aether · ZAI Configuration
  * ------------------------------------------------------------
- * The frontend already compresses images to 1024px JPEG@0.8.
- * sharp (native module) is slow/unreliable on Vercel serverless.
- * So we skip server-side compression entirely and pass the image
- * directly to createVision().
+ * Hardcoded ZAI config — bypasses loadConfig() which reads from
+ * a .z-ai-config file that doesn't exist on Vercel.
+ * 
+ * Using `new ZAI(config)` directly instead of `ZAI.create()`.
  */
 
 import { logger } from './logger'
 
-let zaiInstance: Awaited<ReturnType<typeof import('z-ai-web-dev-sdk').default.create>> | null = null
-let zaiPromise: Promise<typeof zaiInstance> | null = null
+const ZAI_CONFIG = {
+  baseUrl: 'https://internal-api.z.ai/v1',
+  apiKey: 'Z.ai',
+  chatId: 'chat-29bf48db-839a-48ab-a402-026a1fd7cc19',
+  token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMmZkYWFkZmItZjAwMC00ODY3LWJiMDktZGM5Yjg1YTY5NzVlIiwiY2hhdF9pZCI6ImNoYXQtMjliZjQ4ZGItODM5YS00OGFiLWE0MDItMDI2YTFmZDdjYzE5IiwicGxhdGZvcm0iOiJ6YWkifQ.fMoxcqePFaXXPFrxh1ikzPOFYaFpyytyjc1QM8Nckf8',
+  userId: '2fdaadfb-f000-4867-bb09-dc9b85a6975e',
+}
 
-async function getZai() {
+let zaiInstance: Awaited<ReturnType<typeof import('z-ai-web-dev-sdk').default>> | null = null
+
+/**
+ * Get a shared ZAI instance.
+ * Uses `new ZAI(config)` with hardcoded credentials — works on ANY host
+ * including Vercel. Does NOT rely on .z-ai-config file or ZAI.create().
+ */
+export async function getZai() {
   if (zaiInstance) return zaiInstance
-  if (zaiPromise) return zaiPromise
-  zaiPromise = (async () => {
+  try {
     const ZAIModule = await import('z-ai-web-dev-sdk')
     const ZAI = ZAIModule.default
-    zaiInstance = await ZAI.create()
+    zaiInstance = new ZAI(ZAI_CONFIG)
+    logger.info('Aether · ZAI instance created with hardcoded config')
     return zaiInstance
-  })()
-  return zaiPromise
+  } catch (err) {
+    logger.error('Aether · Failed to create ZAI instance:', err instanceof Error ? err.message : err)
+    return null
+  }
 }
 
 /**
- * Analyze an image using ZAI.create() + createVision().
- * NO server-side compression — the frontend already compresses.
- *
+ * Analyze an image using ZAI vision.
  * @param imageDataUrl - base64 data URL (data:image/...;base64,...)
  * @param prompt - the analysis prompt
  * @param timeoutMs - hard timeout (default 8s)
@@ -41,11 +53,10 @@ export async function analyzeImageWithCLI(
   try {
     const zai = await getZai()
     if (!zai) {
-      logger.warn('Aether · VLM: ZAI.create() returned null')
+      logger.warn('Aether · VLM: getZai() returned null')
       return ''
     }
 
-    // Pass the image directly — NO compression (frontend already did it)
     const visionPromise = zai.chat.completions.createVision({
       messages: [
         {
@@ -59,7 +70,6 @@ export async function analyzeImageWithCLI(
       thinking: { type: 'disabled' },
     })
 
-    // Hard timeout via Promise.race
     const timeoutPromise = new Promise<null>((resolve) =>
       setTimeout(() => resolve(null), timeoutMs)
     )

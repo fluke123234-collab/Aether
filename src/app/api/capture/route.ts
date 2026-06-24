@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { analyzeMemoryText } from '@/lib/gemini'
+import { getZai } from '@/lib/vlm'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -24,15 +25,6 @@ export const maxDuration = 60
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-
-// ── The unified ZAI instance (created once, reused) ──
-let zaiInstance: Awaited<ReturnType<typeof import('z-ai-web-dev-sdk').default.create>> | null = null
-async function getZai() {
-  if (zaiInstance) return zaiInstance
-  const ZAIModule = await import('z-ai-web-dev-sdk')
-  zaiInstance = await ZAIModule.default.create()
-  return zaiInstance
-}
 
 const VISION_PROMPT = `You are an infallible, micro-precision visual analysis core operating inside a quiet digital sanctuary. Look directly at the raw pixels provided.
 

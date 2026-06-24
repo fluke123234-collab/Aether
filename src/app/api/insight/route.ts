@@ -31,20 +31,19 @@ export async function POST(req: NextRequest) {
   let insight = 'Sometimes the act of keeping a thought is the insight itself.'
   let angle = 'A gentler look'
 
-  // Use ZAI.create() — works with built-in defaults on any host
+  // Use getZai() from vlm.ts — uses `new ZAI(config)` with hardcoded credentials
   try {
-    const ZAIModule = await import('z-ai-web-dev-sdk')
-    const ZAI = ZAIModule.default
-    const zai = await ZAI.create()
+    const { getZai } = await import('@/lib/vlm')
+    const zai = await getZai()
 
-    const chatPromise = zai.chat.completions.create({
+    const chatPromise = zai!.chat.completions.create({
       messages: [
         { role: 'system', content: INSIGHT_PROMPT },
         { role: 'user', content: memoryText },
       ],
     })
 
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000))
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 7000))
     const res = await Promise.race([chatPromise, timeoutPromise])
 
     if (res) {
