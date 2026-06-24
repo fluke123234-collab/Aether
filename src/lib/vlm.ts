@@ -31,13 +31,14 @@ async function getZai() {
 
 /**
  * Compress an image data URL to max 768px with sharpen filter for OCR.
- * Falls back to the original if sharp fails or takes too long.
- * Uses 768px (not 1024) for faster processing on Vercel's 10s limit.
+ * SKIPPED if the image is already small (< 100KB) — the frontend already
+ * compresses to 1024px JPEG@0.8, so we only compress if it's still large.
  */
 async function compressImageForVision(imageDataUrl: string): Promise<string> {
   try {
     if (!imageDataUrl.startsWith('data:image/')) return imageDataUrl
-    if (imageDataUrl.length < 50000) return imageDataUrl // already small
+    // Skip compression if already small (frontend already compressed)
+    if (imageDataUrl.length < 100000) return imageDataUrl
 
     const mimeMatch = imageDataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/i)
     if (!mimeMatch) return imageDataUrl

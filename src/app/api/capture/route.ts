@@ -69,47 +69,55 @@ export async function POST(req: NextRequest) {
   const memoryId = data.id as string
 
   // ── Step 2: SYNCHRONOUS enrichment (fits Vercel 10s limit) ──
-  // VLM: 5s timeout, Text enrichment: 3s timeout — run in parallel
+  // For images: VLM ONLY (8s timeout) — skip text enrichment entirely.
+  // The VLM description is used for title, summary, and body.
+  // For text: text enrichment only (3s timeout).
   const imageBase64 = hasImage && typeof body.image === 'string' ? body.image : ''
 
-  const imagePromise = hasImage && imageBase64
-    ? Promise.race([
-        analyzeImage(imageBase64).catch(() => ''),
-        new Promise<string>((resolve) => setTimeout(() => resolve(''), 5000))
-      ])
-    : Promise.resolve('')
+  let imageDescription = ''
+  let aiResponseString = ''
 
-  const textForEnrichment = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
-  const enrichmentPromise = Promise.race([
-    analyzeMemoryText(textForEnrichment),
-    new Promise<string>((resolve) => setTimeout(() => resolve(JSON.stringify({ title: textForEnrichment.slice(0, 60), summary: '', tags: ['capture'] })), 3000))
-  ])
+  if (hasImage && imageBase64) {
+    // ── IMAGE PATH: VLM only, 8s timeout ──
+    // Skip text enrichment — use VLM description for everything.
+    // This saves 3-5s and gives a much better title than "Image capture".
+    imageDescription = await Promise.race([
+      analyzeImage(imageBase64).catch(() => ''),
+      new Promise<string>((resolve) => setTimeout(() => resolve(''), 8000))
+    ])
 
-  const [imageDescription, aiResponseString] = await Promise.all([imagePromise, enrichmentPromise])
-
-  // If we got an image description, use it for the title + tags (skip re-enrichment — saves time)
-  let finalAiResponse = aiResponseString
-  if (imageDescription) {
-    // Use the image description directly for title + tags without a second API call
-    const titleFromDesc = imageDescription.slice(0, 60).trim().replace(/\s+/g, ' ')
-    finalAiResponse = JSON.stringify({
-      title: titleFromDesc,
-      summary: imageDescription.slice(0, 200),
-      tags: ['image', 'capture', 'visual'],
-      body: finalContent,
-    })
-  } else if (hasImage && !content) {
-    finalAiResponse = JSON.stringify({
-      title: 'Image capture',
-      summary: 'A captured image. Ask Aether to analyze it.',
-      tags: ['image', 'capture', 'visual'],
-      body: 'Image capture',
-    })
+    if (imageDescription) {
+      // Generate a smart title from the VLM description
+      // Take the first meaningful line (up to 60 chars), skip generic UI text
+      const firstLine = imageDescription.split('\n')[0].trim()
+      const titleFromDesc = (firstLine || imageDescription).slice(0, 60).trim().replace(/\s+/g, ' ')
+      aiResponseString = JSON.stringify({
+        title: titleFromDesc,
+        summary: imageDescription.slice(0, 200),
+        tags: ['image', 'capture', 'visual'],
+        body: content || 'Image capture',
+      })
+    } else {
+      // VLM failed — use fallback
+      aiResponseString = JSON.stringify({
+        title: 'Image capture',
+        summary: 'A captured image. Ask Aether to analyze it.',
+        tags: ['image', 'capture', 'visual'],
+        body: 'Image capture',
+      })
+    }
+  } else {
+    // ── TEXT PATH: text enrichment only, 3s timeout ──
+    const textForEnrichment = content || (hasAudio ? 'Voice note' : '')
+    aiResponseString = await Promise.race([
+      analyzeMemoryText(textForEnrichment),
+      new Promise<string>((resolve) => setTimeout(() => resolve(JSON.stringify({ title: textForEnrichment.slice(0, 60), summary: '', tags: ['capture'] })), 3000))
+    ])
   }
 
   // ── Step 3: Update row with enriched data ──
   try {
-    const aiData = JSON.parse(finalAiResponse) as { title?: unknown; summary?: unknown; tags?: unknown; body?: unknown }
+    const aiData = JSON.parse(aiResponseString) as { title?: unknown; summary?: unknown; tags?: unknown; body?: unknown }
 
     const title = typeof aiData.title === 'string' && aiData.title.trim()
       ? aiData.title.trim().slice(0, 80)
@@ -161,8 +169,8 @@ export async function POST(req: NextRequest) {
 }
 
 async function analyzeImage(imageDataUrl: string): Promise<string> {
-  const VLM_PROMPT = `Analyze this image. Extract ALL visible text (OCR), identify all components, labels, specs, prices, and details. Describe what you see thoroughly. This text will be used for semantic search. Output plain text, no JSON.`
-  return analyzeImageWithCLI(imageDataUrl, VLM_PROMPT, 5000)
+  const VLM_PROMPT = `Analyze this image. Extract ALL visible text (OCR), identify all components, labels, specs, prices. Describe what you see. Output plain text, no JSON.`
+  return analyzeImageWithCLI(imageDataUrl, VLM_PROMPT, 8000)
 }
 
 function classifyMemoryType(text: string): string {
