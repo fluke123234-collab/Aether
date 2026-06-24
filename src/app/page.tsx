@@ -35,6 +35,7 @@ import { RecapModal } from '@/components/aether/RecapModal'
 import { InsightModal } from '@/components/aether/InsightModal'
 import { AskAetherModal } from '@/components/aether/AskAetherModal'
 import { ProfileModal } from '@/components/aether/ProfileModal'
+import { LegalModal } from '@/components/aether/LegalModal'
 import { Serendipity } from '@/components/aether/Serendipity'
 import { useVoiceCapture } from '@/hooks/use-voice-capture'
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
@@ -743,7 +744,7 @@ function FilteredEmptyState({
    Footer — sticky to the floor, whisper-quiet
    ────────────────────────────────────────────────────────────── */
 
-function Footer() {
+function Footer({ onOpenLegal }: { onOpenLegal: (type: 'privacy' | 'manifesto' | 'contact') => void }) {
   return (
     <footer className="mt-auto border-t border-zinc-200/50 dark:border-zinc-800/60 bg-[#FCFBF9]/70 dark:bg-[#09090B]/70 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 pt-6 pb-28 sm:flex-row sm:px-8">
@@ -752,9 +753,9 @@ function Footer() {
           A quieter place to think · crafted in negative space
         </p>
         <div className="flex items-center gap-5 text-xs text-zinc-400 dark:text-zinc-500">
-          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50">Privacy</a>
-          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50">Manifesto</a>
-          <a href="#" className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50">Contact</a>
+          <button onClick={() => onOpenLegal('privacy')} className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50">Privacy</button>
+          <button onClick={() => onOpenLegal('manifesto')} className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50">Manifesto</button>
+          <button onClick={() => onOpenLegal('contact')} className="transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50">Contact</button>
         </div>
       </div>
     </footer>
@@ -776,6 +777,7 @@ export default function Home() {
   const [askOpen, setAskOpen] = useState(false)
   const [askInitialImage, setAskInitialImage] = useState<string | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [legalType, setLegalType] = useState<'privacy' | 'manifesto' | 'contact' | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const user = useAuthStore((s) => s.user)
   const userId = user?.id
