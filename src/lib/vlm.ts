@@ -30,8 +30,9 @@ async function getZai() {
 }
 
 /**
- * Compress an image data URL to max 1024px with sharpen filter for OCR.
- * Falls back to the original if sharp fails.
+ * Compress an image data URL to max 768px with sharpen filter for OCR.
+ * Falls back to the original if sharp fails or takes too long.
+ * Uses 768px (not 1024) for faster processing on Vercel's 10s limit.
  */
 async function compressImageForVision(imageDataUrl: string): Promise<string> {
   try {
@@ -42,13 +43,19 @@ async function compressImageForVision(imageDataUrl: string): Promise<string> {
     if (!mimeMatch) return imageDataUrl
     const buffer = Buffer.from(mimeMatch[2], 'base64')
 
+    // Use a 2s timeout for compression — if it takes longer, skip it
     const sharp = (await import('sharp')).default
-    const compressed = await sharp(buffer)
-      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+    const compressPromise = sharp(buffer)
+      .resize(768, 768, { fit: 'inside', withoutEnlargement: true })
       .sharpen({ sigma: 1.0, flat: 1.0, jagged: 0.5 })
-      .jpeg({ quality: 85, mozjpeg: true })
+      .jpeg({ quality: 80 })
       .toBuffer()
 
+    const timeoutPromise = new Promise<Buffer>((resolve) => {
+      setTimeout(() => resolve(buffer), 2000) // fallback to original buffer
+    })
+
+    const compressed = await Promise.race([compressPromise, timeoutPromise])
     return `data:image/jpeg;base64,${compressed.toString('base64')}`
   } catch (err) {
     logger.warn('Aether · image compression failed, using original:', err instanceof Error ? err.message : err)
@@ -69,7 +76,7 @@ async function compressImageForVision(imageDataUrl: string): Promise<string> {
 export async function analyzeImageWithCLI(
   imageDataUrl: string,
   prompt: string,
-  timeoutMs = 20000
+  timeoutMs = 8000
 ): Promise<string> {
   try {
     const zai = await getZai()

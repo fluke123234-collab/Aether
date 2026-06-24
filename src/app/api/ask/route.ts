@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
 
     const combinedPrompt = `${VISION_SYSTEM_PROMPT}\n\nUSER QUESTION: ${question || 'Analyze this image.'}\n\nRespond with valid raw JSON only:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}`
 
-    const raw = await analyzeImageWithCLI(visionImage, combinedPrompt, 8000)
+    const raw = await analyzeImageWithCLI(visionImage, combinedPrompt, 7000)
     if (raw) {
       const parsed = parseAnswer(raw, memories)
       // Ensure the image memory is always cited
