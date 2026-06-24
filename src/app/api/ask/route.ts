@@ -1,13 +1,16 @@
 /**
- * Aether · /api/ask — Ultra-Fast Reasoning Core
+ * Aether · /api/ask — Fast Reasoning Core (Vercel 10s optimized)
  * ------------------------------------------------------------
- * Optimized for Vercel Hobby plan (10s function timeout):
- *  1. Load 20 most recent memories (fast DB query)
- *  2. If image present: VLM only (8s timeout, no text fallback)
- *  3. If URL in question: scrape URL (skip if image present)
- *  4. Text-only: ZAI SDK (8s timeout)
+ * KEY OPTIMIZATION: Don't load metadata (which includes base64 imageData)
+ * in the main memory query. Instead, do a SEPARATE targeted query for
+ * just the image memory's imageData when needed. This saves hundreds of KB
+ * of data transfer and several seconds.
  *
- * Uses ZAI.create() — works on any host with zero env vars.
+ * Flow:
+ *  1. Load 20 memories WITHOUT metadata (fast: ~200ms)
+ *  2. If any memory has an image, do a targeted query for JUST that imageData
+ *  3. Pass image to VLM (7s timeout)
+ *  4. If no image: text-only with ZAI SDK (8s timeout)
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -22,7 +25,7 @@ export const maxDuration = 60
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-type MemoryRef = { id: string; title: string; body: string; tags: string[] | null; created_at: string; imageData?: string }
+type MemoryRef = { id: string; title: string; body: string; tags: string[] | null; created_at: string }
 type AskResponse = { success: boolean; answer: string; memoryIds: string[]; error?: string }
 
 const SYSTEM_PROMPT = `You are Aether — a brilliant, concise digital companion. Talk like a sharp, supportive peer.
@@ -35,21 +38,15 @@ RULES:
 5. Multi-item comprehension — when a memory has multiple items, comprehend ALL of them.
 6. Memory connections — actively weave connections between different memories.
 
-Cite memory ids in memoryIds if their facts were used or relevant. Be generous with citations for recall questions.
+Cite memory ids in memoryIds if their facts were used or relevant.
 
 OUTPUT: valid raw JSON only, no code fences:
 {"answer":"...","memoryIds":["id1","id2"]}`
 
-const VISION_SYSTEM_PROMPT = `You are an infallible, micro-precision visual analysis engine operating inside a quiet digital sanctuary. You are looking directly at the raw pixel data provided in the payload. Do not summarize loosely, do not guess, and do not reference adjacent text logs.
-
-Scan the pixels for exact text strings, hardware labels, interface structures, motherboard text, serial codes, or fine print. Read the details EXACTLY as they are printed. If a specific component name or model is requested, zoom in mentally on that exact region of the image, interpret the text characters with 100% fidelity, and return a dense, perfectly accurate markdown response.
-
-If a detail is illegible, state "illegible" — never fabricate or approximate.
+const VISION_SYSTEM_PROMPT = `You are an infallible, micro-precision visual analysis engine. You are looking directly at the raw pixel data. Do not guess. Read text strings, hardware labels, specs, prices EXACTLY as printed. If illegible, say "illegible". Return a dense, accurate response.
 
 OUTPUT: valid raw JSON only, no code fences:
 {"answer":"...","memoryIds":["id1","id2"]}`
-
-const URL_REGEX = /(https?:\/\/[^\s]+)/g
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
@@ -72,87 +69,84 @@ export async function POST(req: NextRequest) {
 
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
 
-  // ── Load 20 most recent memories (fast, fits Vercel 10s limit) ──
+  // ── FAST: Load 20 memories WITHOUT metadata (no base64 imageData) ──
   const { data: rows, error: memError } = await userClient
-    .from('memories').select('id, title, body, tags, metadata, created_at')
+    .from('memories').select('id, title, body, tags, created_at')
     .eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(20)
   if (memError) return NextResponse.json({ success: false, answer: '', memoryIds: [], error: memError.message } satisfies AskResponse, { status: 500 })
 
-  const memories: MemoryRef[] = (rows ?? []).map((r) => {
-    const meta = r.metadata as { imageDescription?: string; searchKeywords?: string[]; imageData?: string } | null
-    const imageDesc = meta?.imageDescription?.trim()
-    const keywords = meta?.searchKeywords?.length ? `\n[Keywords: ${meta.searchKeywords.join(', ')}]` : ''
-    const body = imageDesc ? `${r.body || ''}\n[Image content: ${imageDesc}]${keywords}` : (r.body || '')
-    return { id: r.id, title: r.title || 'Untitled', body: body.slice(0, 800), tags: r.tags, created_at: r.created_at, imageData: meta?.imageData }
-  })
+  const memories: MemoryRef[] = (rows ?? []).map((r) => ({
+    id: r.id, title: r.title || 'Untitled', body: (r.body || '').slice(0, 800),
+    tags: r.tags, created_at: r.created_at
+  }))
 
-  // ── Find image memory (if any) ──
-  let visionImage = image || memoryImage
-  if (!visionImage) {
-    const imageMemory = memories.find((m) => m.imageData && m.imageData.startsWith('data:image/'))
-    if (imageMemory?.imageData) {
-      visionImage = imageMemory.imageData
-    }
+  // ── Build context block ──
+  let contextBlock = ''
+  if (memories.length > 0) {
+    contextBlock = `MEMORY CONTEXT (use only if relevant, never announce):\n${memories.map((m) => `id=${m.id} | ${m.title}\n  ${m.body}`).join('\n\n')}\n\n`
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 1: VISION (image present) — VLM only, 8s timeout, NO text fallback
+  // ROUTE 1: VISION — user attached an image OR sent a memoryImage
   // ════════════════════════════════════════════════════════════════
+  let visionImage = image || memoryImage
+
+  // ── If no image attached, check if the user has an image memory ──
+  // Query ONLY for the most recent image memory's metadata (not all memories)
+  if (!visionImage) {
+    const { data: imageRow } = await userClient
+      .from('memories')
+      .select('id, metadata')
+      .eq('user_id', authData.user.id)
+      .eq('category', 'image')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (imageRow) {
+      const meta = imageRow.metadata as { imageData?: string } | null
+      if (meta?.imageData && meta.imageData.startsWith('data:image/')) {
+        visionImage = meta.imageData
+        // Add this memory to the memories list for citation
+        if (!memories.find((m) => m.id === imageRow.id)) {
+          memories.unshift({ id: imageRow.id, title: 'Image memory', body: '', tags: null, created_at: new Date().toISOString() })
+        }
+      }
+    }
+  }
+
   if (visionImage) {
-    const imageMemoryId = memories.find((m) => m.imageData === visionImage)?.id
-    const validIds = new Set(memories.map((m) => m.id))
-    if (imageMemoryId) validIds.add(imageMemoryId)
+    // Find the image memory's ID for citation
+    const imageMemory = memories.find((m) => m.title === 'Image capture' || m.body?.includes('[Image content:'))
+    const imageMemoryId = imageMemory?.id
 
     const combinedPrompt = `${VISION_SYSTEM_PROMPT}\n\nUSER QUESTION: ${question || 'Analyze this image.'}\n\nRespond with valid raw JSON only:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}`
 
     const raw = await analyzeImageWithCLI(visionImage, combinedPrompt, 7000)
     if (raw) {
       const parsed = parseAnswer(raw, memories)
-      // Ensure the image memory is always cited
       if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) {
         parsed.memoryIds.unshift(imageMemoryId)
       }
       return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
     }
 
-    // VLM failed — return a specific message (DON'T fall through to slow text-only)
+    // VLM failed — return the stored description if available
     logger.warn('Aether · VLM failed in /api/ask')
+    const storedDesc = imageMemory?.body || 'No description available.'
     return NextResponse.json({
       success: true,
-      answer: imageMemoryId
-        ? `I can see you have an image memory, but I'm having trouble analyzing the pixels right now. The stored description says: ${memories.find(m => m.id === imageMemoryId)?.body?.slice(0, 200) || 'No description available.'}`
-        : "I received an image but couldn't analyze it right now. Please try again in a moment.",
+      answer: `I can see your image memory but I'm having trouble reading the pixels right now. Here's what I know about it: ${storedDesc.slice(0, 300)}`,
       memoryIds: imageMemoryId ? [imageMemoryId] : []
     } satisfies AskResponse)
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 2: TEXT-ONLY (no image) — with optional URL scraping
+  // ROUTE 2: TEXT-ONLY
   // ════════════════════════════════════════════════════════════════
-  let contextBlock = ''
-  if (memories.length > 0) {
-    contextBlock = `MEMORY CONTEXT (use only if relevant, never announce):\n${memories.map((m) => `id=${m.id} | ${m.title}\n  ${m.body}`).join('\n\n')}\n\n`
-  }
+  const fullPrompt = contextBlock + question
 
-  // URL scraping (only in text-only mode — saves time when image present)
-  let urlContext = ''
-  const urls = question.match(URL_REGEX) || []
-  if (urls.length > 0) {
-    const scraped = await Promise.all(
-      urls.slice(0, 2).map(async (url) => {
-        const content = await scrapeUrl(url)
-        return content ? `[URL content from ${url}]:\n${content}` : null
-      })
-    )
-    const validScrapes = scraped.filter((s): s is string => s !== null)
-    if (validScrapes.length > 0) {
-      urlContext = `WEB CONTENT:\n${validScrapes.join('\n\n---\n\n')}\n\n`
-    }
-  }
-
-  const fullPrompt = contextBlock + urlContext + question
-
-  // Try ZAI SDK (8s timeout — fits Vercel 10s limit)
+  // Try ZAI SDK (8s timeout)
   const raw = await tryZaiSdk(history, fullPrompt)
 
   if (!raw) {
@@ -165,26 +159,6 @@ export async function POST(req: NextRequest) {
 
   const parsed = parseAnswer(raw, memories)
   return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
-}
-
-// ════════════════════════════════════════════════════════════════
-// URL SCRAPING — uses ZAI.create() page_reader
-// ════════════════════════════════════════════════════════════════
-async function scrapeUrl(url: string): Promise<string | null> {
-  try {
-    const ZAIModule = await import('z-ai-web-dev-sdk')
-    const ZAI = ZAIModule.default
-    const zai = await ZAI.create()
-    const result = await zai.functions.invoke('page_reader', { url })
-    const data = result?.data as { title?: string; text?: string; html?: string } | undefined
-    if (!data) return null
-    const text = data.text?.trim() || (data.html ? data.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '')
-    if (!text) return null
-    return `${data.title ? data.title + '\n' : ''}${text.slice(0, 3000)}`.trim()
-  } catch (err) {
-    logger.warn('Aether · URL scrape failed for', url, ':', err instanceof Error ? err.message : err)
-    return null
-  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -221,7 +195,6 @@ function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memo
       return { answer: p.answer.trim().slice(0, 2000), memoryIds: ids }
     }
   } catch {}
-  // Try to extract JSON from the response
   const match = raw.match(/\{[\s\S]*\}/)
   if (match) {
     try {
@@ -237,6 +210,5 @@ function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memo
       }
     } catch {}
   }
-  // Fallback: use raw text as the answer
   return { answer: raw.trim().slice(0, 2000), memoryIds: [] }
 }

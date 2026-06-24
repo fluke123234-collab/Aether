@@ -1,12 +1,10 @@
 /**
- * Aether · VLM utility — uses ZAI.create() for reliable image analysis
+ * Aether · VLM utility — ZAI.create() + createVision() with NO compression
  * ------------------------------------------------------------
- * ZAI.create() uses the SDK's built-in default configuration which
- * works on any host (including Vercel). No env vars needed.
- *
- * Images are compressed to max 1024px with sharpen filter before
- * upload — preserves text-contrast edges for high-fidelity OCR while
- * reducing upload time and API latency.
+ * The frontend already compresses images to 1024px JPEG@0.8.
+ * sharp (native module) is slow/unreliable on Vercel serverless.
+ * So we skip server-side compression entirely and pass the image
+ * directly to createVision().
  */
 
 import { logger } from './logger'
@@ -14,9 +12,6 @@ import { logger } from './logger'
 let zaiInstance: Awaited<ReturnType<typeof import('z-ai-web-dev-sdk').default.create>> | null = null
 let zaiPromise: Promise<typeof zaiInstance> | null = null
 
-/**
- * Get a shared ZAI instance (created once, reused across calls).
- */
 async function getZai() {
   if (zaiInstance) return zaiInstance
   if (zaiPromise) return zaiPromise
@@ -30,48 +25,12 @@ async function getZai() {
 }
 
 /**
- * Compress an image data URL to max 768px with sharpen filter for OCR.
- * SKIPPED if the image is already small (< 100KB) — the frontend already
- * compresses to 1024px JPEG@0.8, so we only compress if it's still large.
- */
-async function compressImageForVision(imageDataUrl: string): Promise<string> {
-  try {
-    if (!imageDataUrl.startsWith('data:image/')) return imageDataUrl
-    // Skip compression if already small (frontend already compressed)
-    if (imageDataUrl.length < 100000) return imageDataUrl
-
-    const mimeMatch = imageDataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/i)
-    if (!mimeMatch) return imageDataUrl
-    const buffer = Buffer.from(mimeMatch[2], 'base64')
-
-    // Use a 2s timeout for compression — if it takes longer, skip it
-    const sharp = (await import('sharp')).default
-    const compressPromise = sharp(buffer)
-      .resize(768, 768, { fit: 'inside', withoutEnlargement: true })
-      .sharpen({ sigma: 1.0, flat: 1.0, jagged: 0.5 })
-      .jpeg({ quality: 80 })
-      .toBuffer()
-
-    const timeoutPromise = new Promise<Buffer>((resolve) => {
-      setTimeout(() => resolve(buffer), 2000) // fallback to original buffer
-    })
-
-    const compressed = await Promise.race([compressPromise, timeoutPromise])
-    return `data:image/jpeg;base64,${compressed.toString('base64')}`
-  } catch (err) {
-    logger.warn('Aether · image compression failed, using original:', err instanceof Error ? err.message : err)
-    return imageDataUrl
-  }
-}
-
-/**
  * Analyze an image using ZAI.create() + createVision().
- * Automatically compresses the image to 1024px with sharpen filter
- * before upload for faster transmission and better OCR fidelity.
+ * NO server-side compression — the frontend already compresses.
  *
  * @param imageDataUrl - base64 data URL (data:image/...;base64,...)
  * @param prompt - the analysis prompt
- * @param timeoutMs - hard timeout (default 15s)
+ * @param timeoutMs - hard timeout (default 8s)
  * @returns The vision model's text response, or empty string on failure
  */
 export async function analyzeImageWithCLI(
@@ -86,17 +45,14 @@ export async function analyzeImageWithCLI(
       return ''
     }
 
-    // Compress the image before sending to the VLM (1024px, sharpen, JPEG@85)
-    const compressedImage = await compressImageForVision(imageDataUrl)
-
-    // Build the vision request
+    // Pass the image directly — NO compression (frontend already did it)
     const visionPromise = zai.chat.completions.createVision({
       messages: [
         {
           role: 'user',
           content: [
             { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: compressedImage } },
+            { type: 'image_url', image_url: { url: imageDataUrl } },
           ],
         },
       ],
