@@ -1076,7 +1076,7 @@ export default function Home() {
         />
       </main>
 
-      <Footer />
+      <Footer onOpenLegal={setLegalType} />
 
       <FloatingCapsule onCapture={addMemory} onCaptureWithImage={addMemoryWithImage} onCaptureWithAudio={addMemoryWithAudio} />
 
@@ -1085,6 +1085,7 @@ export default function Home() {
       <InsightModal open={insightOpen} memoryId={insightMemory?.id ?? null} memoryTitle={insightMemory?.title ?? ''} onClose={() => setInsightOpen(false)} />
       <AskAetherModal key={askInitialImage ?? 'none'} open={askOpen} memories={memories} initialImage={askInitialImage} onClose={() => { setAskOpen(false); setAskInitialImage(null) }} onFocusMemory={(id) => { setActiveFolder(null); setHighlightId(id); setTimeout(() => setHighlightId((c) => c === id ? null : c), 4000); setTimeout(() => { const el = document.getElementById(`memory-${id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100); }} />
       <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
+      <LegalModal type={legalType} onClose={() => setLegalType(null)} />
 
       <SonnerToaster
         position="top-center"
