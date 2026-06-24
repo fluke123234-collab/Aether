@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
       body: `${content || 'Image capture'}\n\n[Image content: A captured image. Ask Aether to analyze it.]`,
       summary: 'A captured image.', tags: ['image', 'capture', 'visual'],
       category: 'image', processing: false,
-      metadata: { imageDescription: 'A captured image. Ask Aether to analyze it.' },
+      metadata: { imageDescription: 'A captured image. Ask Aether to analyze it.', imageData: base64Payload },
     }).eq('id', memoryId)
     return NextResponse.json({ success: true, id: memoryId })
   }
