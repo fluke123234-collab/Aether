@@ -346,7 +346,7 @@ function FloatingCapsule({
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
             }}
             placeholder="Capture a thought, or ask Aether…"
-            className="h-12 flex-1 min-w-0 bg-transparent text-sm sm:text-[15px] text-zinc-800 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-0"
+            className="h-12 flex-1 min-w-0 bg-transparent text-[16px] sm:text-[15px] text-zinc-800 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-0"
           />
         )}
         <div className="flex shrink-0 items-center gap-0.5">
@@ -598,7 +598,10 @@ function MemoryCard({
       )}
 
       <p className="mb-5 font-display text-[15px] leading-relaxed text-zinc-600 dark:text-zinc-300 break-words line-clamp-4">
-        {memory.body?.replace(/\s*\[Image content:[\s\S]*?\]\s*/g, '').trim().replace(/(https?:\/\/[^\s]{30,})/g, (url) => url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 30) + '…') || memory.body}
+        {memory.body?.replace(/\s*\[Image content:[\s\S]*?\]\s*/g, '').trim().replace(/(https?:\/\/[^\s]{20,})/g, (url) => {
+          const clean = url.replace(/^https?:\/\/(www\.)?/, '').split(/[?#]/)[0]
+          return clean.length > 30 ? clean.slice(0, 30) + '…' : clean
+        }) || memory.body}
       </p>
 
       {/* Action row: insight / ask-about-image / PDF / delete — appears on hover */}
@@ -1049,7 +1052,7 @@ export default function Home() {
   )
 
   return (
-    <div className="relative flex min-h-screen flex-col">
+    <div className="relative flex min-h-screen flex-col overscroll-y-contain">
       <TheGlow />
       <TopRail onOpenAsk={() => setAskOpen(true)} onOpenProfile={() => setProfileOpen(true)} />
 

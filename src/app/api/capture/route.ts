@@ -200,6 +200,14 @@ export async function POST(req: NextRequest) {
           .replace(/\s+/g, ' ')
           .trim()
           .slice(0, 6000)
+
+        // Fallback: if scraped content is too short, try og:description / twitter:description
+        if (scrapedContent.length < 100) {
+          const ogMatch = htmlText.match(/<meta\s+(?:property|name)=["']og:description["']\s+content=["']([^"']+)["']/i)
+          const twMatch = htmlText.match(/<meta\s+(?:property|name)=["']twitter:description["']\s+content=["']([^"']+)["']/i)
+          const descMatch = htmlText.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i)
+          scrapedContent = (ogMatch?.[1] || twMatch?.[1] || descMatch?.[1] || scrapedContent).slice(0, 6000)
+        }
       }
     } catch (err) {
       logger.warn('Aether · URL scrape failed:', err instanceof Error ? err.message.slice(0, 80) : err)

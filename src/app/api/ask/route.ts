@@ -68,18 +68,28 @@ export async function POST(req: NextRequest) {
   let imageMemoryId: string | undefined
 
   if (!visionImage) {
+    // Query for memories that have imageData in metadata (not by category,
+    // since images are now categorized into the 6-bucket system)
     const { data: imageRow } = await userClient
       .from('memories').select('id, metadata')
-      .eq('user_id', authData.user.id).eq('category', 'image')
-      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+      .eq('user_id', authData.user.id)
+      .not('metadata', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(10)
 
-    if (imageRow) {
-      const meta = imageRow.metadata as { imageData?: string } | null
-      if (meta?.imageData?.startsWith('data:image/')) {
+    // Find the first memory with actual imageData
+    const found = (imageRow ?? []).find((m) => {
+      const meta = m.metadata as { imageData?: string } | null
+      return meta?.imageData?.startsWith('data:image/')
+    })
+
+    if (found) {
+      const meta = found.metadata as { imageData?: string } | null
+      if (meta?.imageData) {
         visionImage = meta.imageData
-        imageMemoryId = imageRow.id
-        if (!memories.find(m => m.id === imageRow.id)) {
-          memories.unshift({ id: imageRow.id, title: 'Image memory', body: '' })
+        imageMemoryId = found.id
+        if (!memories.find(m => m.id === found.id)) {
+          memories.unshift({ id: found.id, title: 'Image memory', body: '' })
         }
       }
     }
