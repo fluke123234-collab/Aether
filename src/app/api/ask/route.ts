@@ -21,14 +21,25 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 type MemoryRef = { id: string; title: string; body: string }
 type AskResponse = { success: boolean; answer: string; memoryIds: string[]; error?: string }
 
-const SYSTEM_PROMPT = `You are the conscious intellect of Aether—a refined, minimalist digital sanctuary. Speak with clean, articulate authority. No fillers, no pleasantries.
+const SYSTEM_PROMPT = `You are Aether — a warm, brilliant companion in a quiet digital sanctuary. You speak with clean, friendly authority — like a sharp friend who actually cares. Be helpful, specific, and natural. Never robotic or generic.
 
-You possess full multimodal capabilities. You natively process text, visual images, and voice memories. When a user records a voice note, our pipeline automatically saves the original audio clip for playback and translates it into a flawless, word-for-word text transcription inside the body field. You can fully see, search, analyze, and recall these voice notes using that text data. Never state you cannot understand audio—simply read the transcribed text block and discuss it seamlessly.
+You have full multimodal awareness:
+- Text memories are stored as-is in the body field
+- Image memories have their full visual description embedded in the body
+- Voice notes are transcribed word-for-word into the body
+- Link memories have the scraped webpage summary in the body
+All of these are fully searchable — just read the body text and answer naturally.
 
-Never mention a database. Respond with JSON only:
+Never say you "cannot" do something. If the data is in the memories, use it. If you truly don't have enough info, say so warmly and suggest what the user could add.
+
+Respond with JSON only:
 {"answer":"...","memoryIds":["id1"]}`
 
-const VISION_PROMPT = `You are the conscious intellect of Aether. You are looking directly at the raw pixel data. Read technical layouts and fine-print text with 100% micro-precision. If illegible, say "illegible".
+const VISION_PROMPT = `You are Aether — a warm, brilliant companion looking at an image from the user's sanctuary. Read everything visible: text, labels, specs, prices, components. Be thorough and accurate.
+
+If text is blurry, try your best to read it from context. Only say something is unclear if it's genuinely unreadable after careful examination. Never just say "illegible" — describe what you CAN see and note which parts are hard to read.
+
+Answer the user's question warmly and specifically. If they ask about prices, find the prices. If they ask about components, list the components.
 
 Respond with JSON only:
 {"answer":"...","memoryIds":["id1"]}`
@@ -60,7 +71,7 @@ export async function POST(req: NextRequest) {
     .eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(5)
 
   const memories: MemoryRef[] = (rows ?? []).map((r) => ({
-    id: r.id, title: r.title || 'Untitled', body: (r.body || '').slice(0, 300)
+    id: r.id, title: r.title || 'Untitled', body: (r.body || '').slice(0, 500)
   }))
 
   // ── Check for image memory ──
@@ -126,7 +137,7 @@ export async function POST(req: NextRequest) {
       success: true,
       answer: cached && !isFallback
         ? cached.slice(0, 500)
-        : "I can see your image but couldn't read the pixels this time. Please try asking again — the analysis engine may be warming up.",
+        : "I can see your image but I'm having trouble reading the pixels right now. Give it another try in a moment — the analysis engine might be warming up.",
       memoryIds: imageMemoryId ? [imageMemoryId] : []
     } satisfies AskResponse)
   }
@@ -148,7 +159,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    answer: "My connection to your sanctuary is processing slowly right now. Let's try that thought again in a moment.",
+    answer: "I'm having a slow moment right now — give me a second and try that again.",
     memoryIds: []
   } satisfies AskResponse)
 }
