@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
         thinking: { type: 'disabled' },
       })
 
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000))
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
       const res = await Promise.race([visionPromise, timeoutPromise])
 
       if (res) {

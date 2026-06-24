@@ -136,8 +136,9 @@ export async function POST(req: NextRequest) {
         thinking: { type: 'disabled' },
       })
 
-      // ── 7s timeout — if VLM fails, fall back to cached body description ──
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000))
+      // ── 7s timeout — if VLM fails, return cached description IMMEDIATELY ──
+      // (do NOT fall through to text-only — that would exceed Vercel's 10s limit)
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 7000))
       const res = await Promise.race([visionPromise, timeoutPromise])
 
       if (res) {
@@ -190,7 +191,7 @@ export async function POST(req: NextRequest) {
       { role: 'user', content: fullPrompt }
     ]
     const chatPromise = zai.chat.completions.create({ messages })
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 7000))
     const res = await Promise.race([chatPromise, timeoutPromise])
 
     if (res) {
