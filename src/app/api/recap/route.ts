@@ -16,8 +16,6 @@ export const dynamic = 'force-dynamic'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const ZAI_API_KEY = process.env.ZAI_API_KEY || ''
-const ZAI_BASE_URL = process.env.ZAI_BASE_URL || 'https://internal-api.z.ai/v1'
 
 const RECAP_PROMPT = `You are Aether — an insightful companion reviewing the user's day. Give them a GENUINELY USEFUL daily reflection — not generic platitudes, but real analysis. BE SPECIFIC. Reference actual content. Find threads, surface tensions, note gaps. Output valid raw JSON: {"distillation":"3-5 sentence summary, second person, name actual topics.","insights":["specific insight 1","specific insight 2","specific insight 3"]}`
 

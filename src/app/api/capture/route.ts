@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     const mimeMatch = base64Payload.match(/^data:(image\/[a-z]+);/)
     const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg'
 
-    const rawOutput = await geminiVision(VISION_PROMPT, base64Payload, mimeType, 8000)
+    const rawOutput = await geminiVision(VISION_PROMPT, base64Payload, mimeType, 7000)
 
     if (rawOutput) {
       const lines = rawOutput.split('\n').map(l => l.trim()).filter(Boolean)
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
     const mimeMatch = audioPayload.match(/^data:(audio\/[a-z]+);/)
     const audioMimeType = mimeMatch ? mimeMatch[1] : 'audio/webm'
 
-    const rawOutput = await geminiAudio(AUDIO_PROMPT, audioPayload, audioMimeType, 8000)
+    const rawOutput = await geminiAudio(AUDIO_PROMPT, audioPayload, audioMimeType, 7000)
 
     if (rawOutput) {
       const lines = rawOutput.split('\n').map(l => l.trim()).filter(Boolean)

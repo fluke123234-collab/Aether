@@ -1,8 +1,9 @@
 /**
- * Aether · /api/ask — Google Gemini text + vision (Vercel 10s optimized)
+ * Aether · /api/ask — Gemini text + vision (Vercel 10s optimized)
  * ------------------------------------------------------------
- * Uses @google/generative-ai with gemini-2.0-flash.
- * No Z.ai SDK, no proxies, no internal endpoints.
+ * CRITICAL: VLM and text AI NEVER run sequentially.
+ * - VLM path: 6s timeout → return result OR cached description (instant)
+ * - Text path: 8s timeout (full budget, no VLM ran first)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     .eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(5)
 
   const memories: MemoryRef[] = (rows ?? []).map((r) => ({
-    id: r.id, title: r.title || 'Untitled', body: (r.body || '').slice(0, 200)
+    id: r.id, title: r.title || 'Untitled', body: (r.body || '').slice(0, 300)
   }))
 
   // ── Check for image memory ──
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 1: VISION — Gemini gemini-2.0-flash (supports vision)
+  // ROUTE 1: VISION — 6s timeout, NO text AI fallback after
   // ════════════════════════════════════════════════════════════════
   if (visionImage) {
     const mimeMatch = visionImage.match(/^data:(image\/[a-z]+);/)
@@ -95,8 +96,8 @@ export async function POST(req: NextRequest) {
 
     const prompt = `${VISION_PROMPT}\n\nQuestion: ${question || 'What is in this image?'}\n\nRespond with JSON:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}`
 
-    // 8s timeout for vision — gives the proxy enough time
-    const raw = await geminiVision(prompt, visionImage, mimeType, 8000)
+    // 6s timeout — leaves 4s for DB/response within Vercel's 10s
+    const raw = await geminiVision(prompt, visionImage, mimeType, 6000)
 
     if (raw) {
       const parsed = parseAnswer(raw, memories)
@@ -104,48 +105,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
     }
 
-    // VLM failed — try text AI with the cached description from metadata
-    logger.warn('Aether · Gemini vision failed, trying text AI with cached description')
+    // VLM failed — return cached description IMMEDIATELY (no second AI call)
+    // This prevents the 8s + 6s = 14s timeout that was causing "processing slowly"
+    logger.warn('Aether · VLM failed, returning cached description')
     const imgMem = memories.find(m => m.id === imageMemoryId)
-    // Use the full body text as the cached description (no more [Image content:] wrapper)
     const cached = imgMem?.body || ''
-    const isFallback = cached.includes('A captured image. Ask Aether to analyze') || cached.trim() === '' || cached === 'Image capture'
+    const isFallback = cached.includes('A captured image') || cached.trim() === '' || cached === 'Image capture' || cached.length < 20
 
-    if (cached && !isFallback) {
-      // Use text AI to answer the question from the cached description
-      const textPrompt = `Based on this cached image description, answer the user's question. Respond with JSON only: {"answer":"...","memoryIds":["${imageMemoryId || ''}"]}\n\nCached description: ${cached}\n\nQuestion: ${question}`
-      const textResult = await geminiText(textPrompt, SYSTEM_PROMPT, 6000)
-      if (textResult) {
-        const parsed = parseAnswer(textResult, memories)
-        if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) parsed.memoryIds.unshift(imageMemoryId)
-        return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
-      }
-      // Text AI also failed — return the raw cached description
-      return NextResponse.json({
-        success: true,
-        answer: `Based on what I captured: ${cached.slice(0, 500)}`,
-        memoryIds: imageMemoryId ? [imageMemoryId] : []
-      } satisfies AskResponse)
-    }
-
-    // No cached description or it's the fallback text
     return NextResponse.json({
       success: true,
-      answer: "I can see your image but couldn't analyze it. The image may have been captured before the analysis engine was available. Try deleting and re-capturing it.",
+      answer: cached && !isFallback
+        ? cached.slice(0, 500)
+        : "I can see your image but couldn't read the pixels this time. Please try asking again — the analysis engine may be warming up.",
       memoryIds: imageMemoryId ? [imageMemoryId] : []
     } satisfies AskResponse)
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 2: TEXT-ONLY — Gemini text (6s timeout)
+  // ROUTE 2: TEXT-ONLY — 8s timeout (full budget, no VLM ran)
   // ════════════════════════════════════════════════════════════════
   const context = memories.length > 0
-    ? `MEMORIES:\n${memories.map(m => `id=${m.id} | ${m.title}: ${m.body.slice(0, 150)}`).join('\n')}\n\n`
+    ? `MEMORIES:\n${memories.map(m => `id=${m.id} | ${m.title}: ${m.body.slice(0, 200)}`).join('\n')}\n\n`
     : ''
 
   const fullPrompt = `${context}Question: ${question}\n\nRespond with JSON only: {"answer":"...","memoryIds":["id1"]}`
 
-  const raw = await geminiText(fullPrompt, SYSTEM_PROMPT, 6000)
+  const raw = await geminiText(fullPrompt, SYSTEM_PROMPT, 8000)
   if (raw) {
     const parsed = parseAnswer(raw, memories)
     return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
