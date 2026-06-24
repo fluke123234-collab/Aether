@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
       })
 
       // ── 7s timeout — if VLM fails, fall back to cached body description ──
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 7000))
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000))
       const res = await Promise.race([visionPromise, timeoutPromise])
 
       if (res) {

@@ -295,7 +295,7 @@ function FloatingCapsule({
           img.src = reader.result as string
           img.onload = () => {
             const canvas = document.createElement('canvas')
-            const maxDim = 1024
+            const maxDim = 768
             let { width, height } = img
             if (width > maxDim || height > maxDim) {
               if (width > height) { height = Math.round(height * maxDim / width); width = maxDim }
@@ -306,7 +306,7 @@ function FloatingCapsule({
             const ctx = canvas.getContext('2d')
             if (!ctx) { setPendingImage(reader.result as string); return }
             ctx.drawImage(img, 0, 0, width, height)
-            const compressed = canvas.toDataURL('image/jpeg', 0.8)
+            const compressed = canvas.toDataURL('image/jpeg', 0.7)
             setPendingImage(compressed)
             toast('Image attached.', { description: 'Add a note (optional) and press send.' })
           }
