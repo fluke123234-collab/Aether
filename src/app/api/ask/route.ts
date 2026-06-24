@@ -1,8 +1,9 @@
 /**
- * Aether · /api/ask — Uses ZAI.create() + .z-ai-config (works on Vercel)
+ * Aether · /api/ask — Calls AI proxy (works on Vercel)
  * ------------------------------------------------------------
- * The .z-ai-config file is deployed to Vercel and has the correct token.
- * ZAI.create() reads it via loadConfig() from process.cwd()/.z-ai-config.
+ * The Z.ai API (internal-api.z.ai) is only reachable from Z.ai's infrastructure.
+ * Vercel can't reach it. So we call an AI proxy running on Z.ai's container.
+ * The proxy uses ZAI.create() which works from Z.ai's network.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -16,19 +17,8 @@ export const dynamic = 'force-dynamic'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-// ── ZAI singleton — created once via ZAI.create() ──
-let zaiInstance: any = null
-async function getZai() {
-  if (zaiInstance) return zaiInstance
-  try {
-    const ZAIModule = await import('z-ai-web-dev-sdk')
-    zaiInstance = await ZAIModule.default.create()
-    return zaiInstance
-  } catch (err) {
-    logger.error('Aether · ZAI.create() failed:', err instanceof Error ? err.message : err)
-    return null
-  }
-}
+// AI proxy URL — running on Z.ai's container (can reach internal-api.z.ai)
+const AI_PROXY_URL = 'https://preview-chat-29bf48db-839a-48ab-a402-026a1fd7cc19.space-z.ai/?XTransformPort=3001'
 
 function stripFences(raw: string): string {
   let c = raw.trim()
@@ -93,36 +83,33 @@ export async function POST(req: NextRequest) {
     imageMemoryId = memories.find(m => m.body?.includes('[Image content:'))?.id
   }
 
-  const zai = await getZai()
-
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 1: VISION
+  // ROUTE 1: VISION — call AI proxy
   // ════════════════════════════════════════════════════════════════
-  if (visionImage && zai) {
+  if (visionImage) {
     try {
       const prompt = `You are Aether. Read the image pixels. Extract all text, labels, specs exactly. Respond with JSON only:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}\n\nQuestion: ${question || 'What is in this image?'}`
 
-      const visionPromise = zai.chat.completions.createVision({
-        messages: [{ role: 'user', content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: visionImage } },
-        ]}],
-        thinking: { type: 'disabled' },
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 8000)
+      const res = await fetch(AI_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({ type: 'vision', prompt, image: visionImage, timeoutMs: 7000 }),
       })
+      clearTimeout(timeout)
 
-      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 6000))
-      const res = await Promise.race([visionPromise, timeoutPromise])
-
-      if (res) {
-        const raw = res.choices?.[0]?.message?.content ?? ''
-        if (raw.trim()) {
-          const parsed = parseAnswer(raw, memories)
+      if (res.ok) {
+        const json = await res.json()
+        if (json.success && json.content) {
+          const parsed = parseAnswer(json.content, memories)
           if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) parsed.memoryIds.unshift(imageMemoryId)
           return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
         }
       }
     } catch (err) {
-      logger.warn('Aether · vision failed:', err instanceof Error ? err.message : err)
+      logger.warn('Aether · vision proxy failed:', err instanceof Error ? err.message : err)
     }
 
     // VLM failed — return cached description immediately
@@ -140,16 +127,8 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 2: TEXT-ONLY
+  // ROUTE 2: TEXT-ONLY — call AI proxy
   // ════════════════════════════════════════════════════════════════
-  if (!zai) {
-    return NextResponse.json({
-      success: true,
-      answer: "My connection to your sanctuary is processing slowly right now. Let's try that thought again in a moment.",
-      memoryIds: []
-    } satisfies AskResponse)
-  }
-
   const context = memories.length > 0
     ? `MEMORIES:\n${memories.map(m => `id=${m.id} | ${m.title}: ${m.body.slice(0, 150)}`).join('\n')}\n\n`
     : ''
@@ -161,19 +140,25 @@ export async function POST(req: NextRequest) {
   ]
 
   try {
-    const chatPromise = zai.chat.completions.create({ messages })
-    const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 6000))
-    const res = await Promise.race([chatPromise, timeoutPromise])
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8000)
+    const res = await fetch(AI_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({ type: 'text', messages, timeoutMs: 7000 }),
+    })
+    clearTimeout(timeout)
 
-    if (res) {
-      const raw = res.choices?.[0]?.message?.content ?? ''
-      if (raw.trim()) {
-        const parsed = parseAnswer(raw, memories)
+    if (res.ok) {
+      const json = await res.json()
+      if (json.success && json.content) {
+        const parsed = parseAnswer(json.content, memories)
         return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
       }
     }
   } catch (err) {
-    logger.warn('Aether · text failed:', err instanceof Error ? err.message : err)
+    logger.warn('Aether · text proxy failed:', err instanceof Error ? err.message : err)
   }
 
   return NextResponse.json({

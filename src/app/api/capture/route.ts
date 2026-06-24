@@ -1,5 +1,5 @@
 /**
- * Aether · /api/capture — Uses ZAI.create() + .z-ai-config (works on Vercel)
+ * Aether · /api/capture — Calls AI proxy (works on Vercel)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -13,18 +13,7 @@ export const dynamic = 'force-dynamic'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-let zaiInstance: any = null
-async function getZai() {
-  if (zaiInstance) return zaiInstance
-  try {
-    const ZAIModule = await import('z-ai-web-dev-sdk')
-    zaiInstance = await ZAIModule.default.create()
-    return zaiInstance
-  } catch (err) {
-    logger.error('Aether · ZAI.create() failed:', err instanceof Error ? err.message : err)
-    return null
-  }
-}
+const AI_PROXY_URL = 'https://preview-chat-29bf48db-839a-48ab-a402-026a1fd7cc19.space-z.ai/?XTransformPort=3001'
 
 function stripFences(raw: string): string {
   let c = raw.trim()
@@ -86,26 +75,28 @@ export async function POST(req: NextRequest) {
 
   const memoryId = data.id as string
   const base64Payload = hasImage && typeof body.image === 'string' ? body.image : ''
-  const zai = await getZai()
 
   // ════════════════════════════════════════════════════════════════
-  // IMAGE PATH: VLM → 3-line split → DB update
+  // IMAGE PATH: AI proxy VLM → 3-line split → DB update
   // ════════════════════════════════════════════════════════════════
-  if (hasImage && base64Payload && zai) {
+  if (hasImage && base64Payload) {
     let rawOutput = ''
     try {
-      const visionPromise = zai.chat.completions.createVision({
-        messages: [{ role: 'user', content: [
-          { type: 'text', text: VISION_PROMPT },
-          { type: 'image_url', image_url: { url: base64Payload } },
-        ]}],
-        thinking: { type: 'disabled' },
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000)
+      const res = await fetch(AI_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({ type: 'vision', prompt: VISION_PROMPT, image: base64Payload, timeoutMs: 8000 }),
       })
-      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 7000))
-      const res = await Promise.race([visionPromise, timeoutPromise])
-      if (res) rawOutput = res.choices?.[0]?.message?.content?.trim() || ''
+      clearTimeout(timeout)
+      if (res.ok) {
+        const json = await res.json()
+        if (json.success && json.content) rawOutput = json.content
+      }
     } catch (err) {
-      logger.warn('Aether · VLM error:', err instanceof Error ? err.message : err)
+      logger.warn('Aether · VLM proxy error:', err instanceof Error ? err.message : err)
     }
 
     if (rawOutput) {
@@ -149,27 +140,35 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // TEXT/AUDIO PATH: ZAI text enrichment (5s timeout)
+  // TEXT/AUDIO PATH: AI proxy text enrichment
   // ════════════════════════════════════════════════════════════════
   const textForEnrichment = content || (hasAudio ? 'Voice note' : '')
   let aiResponseString: string | null = null
 
-  if (zai && textForEnrichment.length >= 20) {
+  if (textForEnrichment.length >= 20) {
     try {
-      const chatPromise = zai.chat.completions.create({
-        messages: [
-          { role: 'system', content: ENRICHMENT_PROMPT },
-          { role: 'user', content: textForEnrichment.slice(0, 500) },
-        ],
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 8000)
+      const res = await fetch(AI_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          type: 'text',
+          messages: [
+            { role: 'system', content: ENRICHMENT_PROMPT },
+            { role: 'user', content: textForEnrichment.slice(0, 500) },
+          ],
+          timeoutMs: 6000,
+        }),
       })
-      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 5000))
-      const res = await Promise.race([chatPromise, timeoutPromise])
-      if (res) {
-        const raw = res.choices?.[0]?.message?.content ?? ''
-        if (raw.trim()) aiResponseString = raw.trim()
+      clearTimeout(timeout)
+      if (res.ok) {
+        const json = await res.json()
+        if (json.success && json.content) aiResponseString = json.content
       }
     } catch (err) {
-      logger.warn('Aether · text enrichment failed:', err instanceof Error ? err.message : err)
+      logger.warn('Aether · text enrichment proxy failed:', err instanceof Error ? err.message : err)
     }
   }
 
