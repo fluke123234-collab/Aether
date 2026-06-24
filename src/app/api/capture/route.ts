@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
       await userClient.from('memories').update({
         title, body: enrichedBody, content: enrichedBody,
         summary: description.slice(0, 280),
-        tags, category: 'image', processing: false,
+        tags, category: resolveCategory(tags, title, description), processing: false,
         metadata: { title, summary: description.slice(0, 280), tags, type: 'image',
           imageDescription: description, searchKeywords: tags, imageData: base64Payload },
       }).eq('id', memoryId)
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
       title: content ? content.slice(0, 60) : 'Image capture',
       body: content || 'Image capture',
       summary: '', tags: ['image', 'capture'],
-      category: 'image', processing: false,
+      category: resolveCategory(['image', 'capture'], 'Image capture', 'A captured image'), processing: false,
       metadata: { imageDescription: 'A captured image. Ask Aether to analyze it.', imageData: base64Payload },
     }).eq('id', memoryId)
     return NextResponse.json({ success: true, id: memoryId })
@@ -160,7 +160,7 @@ export async function POST(req: NextRequest) {
       await userClient.from('memories').update({
         title, body: enrichedBody, content: enrichedBody,
         summary: transcription.slice(0, 280),
-        tags, category: 'voice', processing: false,
+        tags, category: 'others', processing: false,
         metadata: { title, summary: transcription.slice(0, 280), tags, type: 'voice',
           audioData: audioPayload, searchKeywords: tags },
       }).eq('id', memoryId)
@@ -237,7 +237,7 @@ ${scrapedContent}`
         await userClient.from('memories').update({
           title, body: enrichedBody, content: enrichedBody,
           summary: summary.slice(0, 280),
-          tags, category: 'link', processing: false,
+          tags, category: 'others', processing: false,
           metadata: { title, summary: summary.slice(0, 280), tags, type: 'link',
             sourceUrl: incomingUrl, originalScrape: scrapedContent.slice(0, 4000), searchKeywords: tags },
         }).eq('id', memoryId)
@@ -252,7 +252,7 @@ ${scrapedContent}`
         title: incomingUrl.slice(0, 60),
         body: scrapedContent.slice(0, 500),
         summary: '', tags: ['link', 'capture'],
-        category: 'link', processing: false,
+        category: 'others', processing: false,
         metadata: { sourceUrl: incomingUrl, originalScrape: scrapedContent.slice(0, 4000) },
       }).eq('id', memoryId)
       return NextResponse.json({ success: true, id: memoryId })
@@ -264,7 +264,7 @@ ${scrapedContent}`
       title: incomingUrl.slice(0, 60),
       body: incomingUrl,
       summary: '', tags: ['link', 'capture'],
-      category: 'link', processing: false,
+      category: 'others', processing: false,
       metadata: { sourceUrl: incomingUrl },
     }).eq('id', memoryId)
     return NextResponse.json({ success: true, id: memoryId })
@@ -297,8 +297,8 @@ ${scrapedContent}`
     let tags: string[] = Array.isArray(aiData.tags) ? aiData.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map(t => t.trim()).slice(0, 5) : []
     if (tags.length === 0) tags = hasAudio ? ['voice', 'capture'] : ['capture', 'note']
     const correctedBody = typeof aiData.body === 'string' && aiData.body.trim() ? aiData.body.trim().slice(0, 500) : finalContent
-    // Single-category: use the first tag as the primary category, fallback to classifyMemoryType
-    const memoryType = hasAudio ? 'voice' : (tags.length > 0 ? tags[0] : classifyMemoryType(correctedBody))
+    // Single-category: use resolveCategory to force into 6 buckets
+    const memoryType = hasAudio ? 'others' : resolveCategory(tags, title, correctedBody)
 
     const metadataObj: Record<string, unknown> = { title, summary, tags, type: memoryType, searchKeywords: tags }
     if (hasAudio && typeof body.audio === 'string') metadataObj.audioData = body.audio
@@ -313,7 +313,7 @@ ${scrapedContent}`
     logger.error('Enrichment parse failed:', parseError instanceof Error ? parseError.message : parseError)
     const fallbackTags = hasAudio ? ['voice', 'capture'] : ['capture', 'note']
     await userClient.from('memories').update({
-      processing: false, tags: fallbackTags, title: finalContent.slice(0, 60) || 'Untitled Thought', category: hasAudio ? 'voice' : 'note',
+      processing: false, tags: fallbackTags, title: finalContent.slice(0, 60) || 'Untitled Thought', category: 'others',
     }).eq('id', memoryId)
     return NextResponse.json({ success: true, id: memoryId })
   }
@@ -321,11 +321,26 @@ ${scrapedContent}`
 
 function classifyMemoryType(text: string): string {
   const t = text.toLowerCase()
-  if (/\b(work|job|career|office|meeting|project|deadline|client|boss|colleague|email|report|presentation|startup|company|business)\b/.test(t)) return 'work'
-  if (/\b(money|budget|dollar|cost|price|spend|spent|save|invest|stock|tax|rent|loan|debt|income|salary|pay|bill|bank|bought)\b/.test(t)) return 'money'
-  if (/\b(health|doctor|gym|workout|exercise|run|sleep|diet|eat|food|weight|sick|medicine|therapy|mental|anxiety|stress|tired)\b/.test(t)) return 'health'
-  if (/\b(idea|what if|concept|imagine|brainstorm|could be|might be|product|app|feature|design|build|create|invent)\b/.test(t)) return 'ideas'
-  if (/\b(family|friend|partner|wife|husband|girlfriend|boyfriend|mom|dad|mother|father|son|daughter|kid|relationship|love|date)\b/.test(t)) return 'relationships'
-  if (/\b(todo|to-do|task|need to|must|should|have to|don'?t forget|remember to|finish|complete|ship|fix|call|send|buy|schedule|book)\b/.test(t)) return 'task'
-  return 'personal'
+  if (/\b(work|job|career|office|meeting|project|deadline|client|boss|colleague|email|report|presentation|startup|company|business|code|coding|program)\b/.test(t)) return 'work'
+  if (/\b(recipe|cooking|restaurant|food|eat|meal|dinner|lunch|breakfast|cafe|bake|chef|cuisine)\b/.test(t)) return 'food'
+  if (/\b(read|novel|article|book|chapter|author|publish|literature|textbook|study|learn)\b/.test(t)) return 'books'
+  if (/\b(movie|game|music|show|series|anime|concert|podcast|stream|video|youtube|netflix|spotify)\b/.test(t)) return 'entertainment'
+  if (/\b(idea|concept|imagine|brainstorm|could be|might be|product|app|feature|design|build|create|invent|future|startup|vision)\b/.test(t)) return 'ideas'
+  return 'others'
+}
+
+/** Strict 6-category mapper — forces any tag/text into one of the 6 buckets */
+function resolveCategory(tags: string[], title: string, body: string): string {
+  const allowed = ['work', 'books', 'ideas', 'food', 'entertainment', 'others']
+  const primaryTag = tags[0]?.toLowerCase().trim()
+  if (primaryTag && allowed.includes(primaryTag)) return primaryTag
+
+  // Keyword fallback
+  const text = (title + ' ' + body).toLowerCase()
+  if (/\b(recipe|cooking|restaurant|food|eat|meal|dinner|lunch|breakfast|cafe|bake)\b/.test(text)) return 'food'
+  if (/\b(code|project|meeting|work|job|office|business|deadline|client|report)\b/.test(text)) return 'work'
+  if (/\b(read|novel|article|book|chapter|author|study|learn|textbook)\b/.test(text)) return 'books'
+  if (/\b(movie|game|music|show|series|anime|concert|podcast|stream|video)\b/.test(text)) return 'entertainment'
+  if (/\b(concept|startup|future|idea|imagine|brainstorm|vision|invent)\b/.test(text)) return 'ideas'
+  return 'others'
 }

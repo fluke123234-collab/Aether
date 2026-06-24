@@ -597,8 +597,8 @@ function MemoryCard({
         </div>
       )}
 
-      <p className="mb-5 font-display text-[15px] leading-relaxed text-zinc-600 dark:text-zinc-300">
-        {memory.body?.replace(/\s*\[Image content:[\s\S]*?\]\s*/g, '').trim() || memory.body}
+      <p className="mb-5 font-display text-[15px] leading-relaxed text-zinc-600 dark:text-zinc-300 break-words line-clamp-4">
+        {memory.body?.replace(/\s*\[Image content:[\s\S]*?\]\s*/g, '').trim().replace(/(https?:\/\/[^\s]{30,})/g, (url) => url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 30) + '…') || memory.body}
       </p>
 
       {/* Action row: insight / ask-about-image / PDF / delete — appears on hover */}
