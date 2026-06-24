@@ -137,10 +137,10 @@ export async function POST(req: NextRequest) {
           }
 
           // ── Step 4: SINGLE-PASS DATABASE INJECTION ──
-          const body = `${content || 'Image capture'}\n\n[Image content: ${description}]`.slice(0, 1000)
+          const enrichedBody = `${content || 'Image capture'}\n\n[Image content: ${description}]`.slice(0, 1000)
 
           await userClient.from('memories').update({
-            title, body, content: body,
+            title, body: enrichedBody, content: enrichedBody,
             summary: description.slice(0, 280),
             tags, category: 'image', processing: false,
             metadata: {

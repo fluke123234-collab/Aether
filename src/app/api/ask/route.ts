@@ -159,12 +159,14 @@ export async function POST(req: NextRequest) {
 
     // ── Fallback: use the cached description from the body text ──
     const imageMemory = memories.find((m) => m.id === imageMemoryId)
-    const cachedDesc = imageMemory?.body?.match(/\[Image content: ([\s\S]+)\]/)?.[1] || imageMemory?.body || ''
+    const cachedDesc = imageMemory?.body?.match(/\[Image content: ([\s\S]+)\]/)?.[1] || ''
+    const isFallbackDesc = cachedDesc.includes('A captured image. Ask Aether to analyze')
+
     return NextResponse.json({
       success: true,
-      answer: cachedDesc
+      answer: cachedDesc && !isFallbackDesc
         ? `Based on what I captured earlier: ${cachedDesc.slice(0, 500)}`
-        : "I can see you have an image memory but I couldn't analyze the pixels right now. Please try again in a moment.",
+        : "I can see your image memory but the live pixel analysis timed out. The image was captured but not yet analyzed — try deleting and re-capturing it, then ask again.",
       memoryIds: imageMemoryId ? [imageMemoryId] : []
     } satisfies AskResponse)
   }
@@ -210,8 +212,14 @@ export async function POST(req: NextRequest) {
 }
 
 function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memoryIds: string[] } {
+  // Strip markdown code fences if present (```json ... ```)
+  let cleaned = raw.trim()
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+  }
+
   try {
-    const p = JSON.parse(raw) as { answer?: unknown; memoryIds?: unknown }
+    const p = JSON.parse(cleaned) as { answer?: unknown; memoryIds?: unknown }
     if (typeof p.answer === 'string' && p.answer.trim()) {
       const validIds = new Set(memories.map((m) => m.id))
       const ids = Array.isArray(p.memoryIds)
@@ -222,7 +230,8 @@ function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memo
       return { answer: p.answer.trim().slice(0, 2000), memoryIds: ids }
     }
   } catch {}
-  const match = raw.match(/\{[\s\S]*\}/)
+  // Try to extract JSON from the response
+  const match = cleaned.match(/\{[\s\S]*\}/)
   if (match) {
     try {
       const p = JSON.parse(match[0]) as { answer?: unknown; memoryIds?: unknown }
@@ -237,5 +246,6 @@ function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memo
       }
     } catch {}
   }
-  return { answer: raw.trim().slice(0, 2000), memoryIds: [] }
+  // Fallback: use raw text as the answer
+  return { answer: cleaned.trim().slice(0, 2000), memoryIds: [] }
 }
