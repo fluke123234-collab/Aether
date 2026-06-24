@@ -1,10 +1,14 @@
 /**
- * Aether · /api/capture — Calls AI proxy (works on Vercel)
+ * Aether · /api/capture — Google Gemini multimodal capture
+ * ------------------------------------------------------------
+ * Uses @google/generative-ai with gemini-2.0-flash.
+ * No Z.ai SDK, no proxies, no internal endpoints.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { geminiVision, geminiText, stripFences } from '@/lib/gemini-ai'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -12,14 +16,6 @@ export const dynamic = 'force-dynamic'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-
-const AI_PROXY_URL = 'https://preview-chat-29bf48db-839a-48ab-a402-026a1fd7cc19.space-z.ai/?XTransformPort=3001'
-
-function stripFences(raw: string): string {
-  let c = raw.trim()
-  if (c.startsWith('```')) c = c.replace(/^```(?:json|text|html)?\s*/i, '').replace(/\s*```$/, '')
-  return c
-}
 
 const VISION_PROMPT = `You are an infallible visual analysis core. Look at the raw pixels.
 Read and extract ALL text (OCR), components, labels, specs, prices with absolute accuracy.
@@ -77,27 +73,14 @@ export async function POST(req: NextRequest) {
   const base64Payload = hasImage && typeof body.image === 'string' ? body.image : ''
 
   // ════════════════════════════════════════════════════════════════
-  // IMAGE PATH: AI proxy VLM → 3-line split → DB update
+  // IMAGE PATH: Gemini Vision → 3-line split → DB update
   // ════════════════════════════════════════════════════════════════
   if (hasImage && base64Payload) {
-    let rawOutput = ''
-    try {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 10000)
-      const res = await fetch(AI_PROXY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({ type: 'vision', prompt: VISION_PROMPT, image: base64Payload, timeoutMs: 8000 }),
-      })
-      clearTimeout(timeout)
-      if (res.ok) {
-        const json = await res.json()
-        if (json.success && json.content) rawOutput = json.content
-      }
-    } catch (err) {
-      logger.warn('Aether · VLM proxy error:', err instanceof Error ? err.message : err)
-    }
+    // Extract mime type from data URL
+    const mimeMatch = base64Payload.match(/^data:(image\/[a-z]+);/)
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg'
+
+    const rawOutput = await geminiVision(VISION_PROMPT, base64Payload, mimeType, 8000)
 
     if (rawOutput) {
       const lines = rawOutput.split('\n').map(l => l.trim()).filter(Boolean)
@@ -128,7 +111,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, id: memoryId, enriched: true })
     }
 
-    logger.warn('Aether · VLM failed for capture, using fallback')
+    logger.warn('Aether · Gemini vision failed for capture, using fallback')
     await userClient.from('memories').update({
       title: content ? content.slice(0, 60) : 'Image capture',
       body: `${content || 'Image capture'}\n\n[Image content: A captured image. Ask Aether to analyze it.]`,
@@ -140,36 +123,17 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // TEXT/AUDIO PATH: AI proxy text enrichment
+  // TEXT/AUDIO PATH: Gemini text enrichment
   // ════════════════════════════════════════════════════════════════
   const textForEnrichment = content || (hasAudio ? 'Voice note' : '')
   let aiResponseString: string | null = null
 
   if (textForEnrichment.length >= 20) {
-    try {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 8000)
-      const res = await fetch(AI_PROXY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          type: 'text',
-          messages: [
-            { role: 'system', content: ENRICHMENT_PROMPT },
-            { role: 'user', content: textForEnrichment.slice(0, 500) },
-          ],
-          timeoutMs: 6000,
-        }),
-      })
-      clearTimeout(timeout)
-      if (res.ok) {
-        const json = await res.json()
-        if (json.success && json.content) aiResponseString = json.content
-      }
-    } catch (err) {
-      logger.warn('Aether · text enrichment proxy failed:', err instanceof Error ? err.message : err)
-    }
+    aiResponseString = await geminiText(
+      textForEnrichment.slice(0, 500),
+      ENRICHMENT_PROMPT,
+      6000
+    )
   }
 
   try {

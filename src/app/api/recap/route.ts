@@ -107,15 +107,15 @@ export async function POST(req: NextRequest) {
   // Use Groq text model (llama-3.3-70b-versatile)
   {
     try {
-      const { aiText, stripCodeFences } = await import('@/lib/ai')
-      const raw = await aiText([
+      const { geminiText, stripFences } = await import('@/lib/gemini-ai')
+      const raw = await geminiText([
         { role: 'system', content: RECAP_PROMPT },
         { role: 'user', content: memoryText },
       ], 7000)
 
       if (raw) {
         try {
-          const p = JSON.parse(stripCodeFences(raw))
+          const p = JSON.parse(stripFences(raw))
           if (typeof p.distillation === 'string') distillation = p.distillation.slice(0, 500)
           if (Array.isArray(p.insights)) {
             insights = p.insights

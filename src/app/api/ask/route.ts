@@ -1,14 +1,14 @@
 /**
- * Aether · /api/ask — Calls AI proxy (works on Vercel)
+ * Aether · /api/ask — Google Gemini text + vision (Vercel 10s optimized)
  * ------------------------------------------------------------
- * The Z.ai API (internal-api.z.ai) is only reachable from Z.ai's infrastructure.
- * Vercel can't reach it. So we call an AI proxy running on Z.ai's container.
- * The proxy uses ZAI.create() which works from Z.ai's network.
+ * Uses @google/generative-ai with gemini-2.0-flash.
+ * No Z.ai SDK, no proxies, no internal endpoints.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { geminiVision, geminiText, stripFences } from '@/lib/gemini-ai'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -17,17 +17,12 @@ export const dynamic = 'force-dynamic'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-// AI proxy URL — running on Z.ai's container (can reach internal-api.z.ai)
-const AI_PROXY_URL = 'https://preview-chat-29bf48db-839a-48ab-a402-026a1fd7cc19.space-z.ai/?XTransformPort=3001'
-
-function stripFences(raw: string): string {
-  let c = raw.trim()
-  if (c.startsWith('```')) c = c.replace(/^```(?:json|text|html)?\s*/i, '').replace(/\s*```$/, '')
-  return c
-}
-
 type MemoryRef = { id: string; title: string; body: string }
 type AskResponse = { success: boolean; answer: string; memoryIds: string[]; error?: string }
+
+const SYSTEM_PROMPT = `You are Aether—a refined digital sanctuary. Speak with clean authority. No fillers. Never mention a database. Respond with JSON only: {"answer":"...","memoryIds":["id1"]}`
+
+const VISION_PROMPT = `You are Aether. Read the image pixels. Extract all text, labels, specs exactly. Respond with JSON only: {"answer":"...","memoryIds":["id1"]}`
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
@@ -84,35 +79,24 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 1: VISION — call AI proxy
+  // ROUTE 1: VISION — Gemini gemini-2.0-flash (supports vision)
   // ════════════════════════════════════════════════════════════════
   if (visionImage) {
-    try {
-      const prompt = `You are Aether. Read the image pixels. Extract all text, labels, specs exactly. Respond with JSON only:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}\n\nQuestion: ${question || 'What is in this image?'}`
+    const mimeMatch = visionImage.match(/^data:(image\/[a-z]+);/)
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg'
 
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 8000)
-      const res = await fetch(AI_PROXY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({ type: 'vision', prompt, image: visionImage, timeoutMs: 7000 }),
-      })
-      clearTimeout(timeout)
+    const prompt = `${VISION_PROMPT}\n\nQuestion: ${question || 'What is in this image?'}\n\nRespond with JSON:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}`
 
-      if (res.ok) {
-        const json = await res.json()
-        if (json.success && json.content) {
-          const parsed = parseAnswer(json.content, memories)
-          if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) parsed.memoryIds.unshift(imageMemoryId)
-          return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
-        }
-      }
-    } catch (err) {
-      logger.warn('Aether · vision proxy failed:', err instanceof Error ? err.message : err)
+    const raw = await geminiVision(prompt, visionImage, mimeType, 7000)
+
+    if (raw) {
+      const parsed = parseAnswer(raw, memories)
+      if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) parsed.memoryIds.unshift(imageMemoryId)
+      return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
     }
 
     // VLM failed — return cached description immediately
+    logger.warn('Aether · Gemini vision failed, returning cached description')
     const imgMem = memories.find(m => m.id === imageMemoryId)
     const cached = imgMem?.body?.match(/\[Image content: ([\s\S]+)\]/)?.[1] || ''
     const isFallback = cached.includes('A captured image. Ask Aether to analyze')
@@ -127,38 +111,18 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 2: TEXT-ONLY — call AI proxy
+  // ROUTE 2: TEXT-ONLY — Gemini text (6s timeout)
   // ════════════════════════════════════════════════════════════════
   const context = memories.length > 0
     ? `MEMORIES:\n${memories.map(m => `id=${m.id} | ${m.title}: ${m.body.slice(0, 150)}`).join('\n')}\n\n`
     : ''
 
-  const messages = [
-    { role: 'system', content: 'You are Aether—a refined digital sanctuary. Speak with clean authority. No fillers. Never mention a database. Respond with JSON only: {"answer":"...","memoryIds":["id1"]}' },
-    ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.text })),
-    { role: 'user', content: context + question }
-  ]
+  const fullPrompt = `${context}Question: ${question}\n\nRespond with JSON only: {"answer":"...","memoryIds":["id1"]}`
 
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 8000)
-    const res = await fetch(AI_PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({ type: 'text', messages, timeoutMs: 7000 }),
-    })
-    clearTimeout(timeout)
-
-    if (res.ok) {
-      const json = await res.json()
-      if (json.success && json.content) {
-        const parsed = parseAnswer(json.content, memories)
-        return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
-      }
-    }
-  } catch (err) {
-    logger.warn('Aether · text proxy failed:', err instanceof Error ? err.message : err)
+  const raw = await geminiText(fullPrompt, SYSTEM_PROMPT, 6000)
+  if (raw) {
+    const parsed = parseAnswer(raw, memories)
+    return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
   }
 
   return NextResponse.json({

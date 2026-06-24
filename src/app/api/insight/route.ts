@@ -33,15 +33,15 @@ export async function POST(req: NextRequest) {
 
   // Use Groq text model (llama-3.3-70b-versatile)
   try {
-    const { aiText, stripCodeFences } = await import('@/lib/ai')
-    const raw = await aiText([
+    const { geminiText, stripFences } = await import('@/lib/gemini-ai')
+    const raw = await geminiText([
       { role: 'system', content: INSIGHT_PROMPT },
       { role: 'user', content: memoryText },
     ], 7000)
 
     if (raw) {
       try {
-        const p = JSON.parse(stripCodeFences(raw))
+        const p = JSON.parse(stripFences(raw))
         if (typeof p.angle === 'string') angle = p.angle.slice(0, 60)
         if (typeof p.insight === 'string') insight = p.insight.slice(0, 800)
       } catch {
