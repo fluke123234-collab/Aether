@@ -1,61 +1,80 @@
 /**
- * Aether · Unified AI utility — ZAI only (hardcoded config)
+ * Aether · AI utility — direct fetch to ZAI API (NO SDK)
  * ------------------------------------------------------------
- * Uses `new ZAI(config)` with hardcoded credentials.
- * No Groq, no env vars, no config files.
- * Works on any host including Vercel.
+ * Bypasses the z-ai-web-dev-sdk entirely. Uses direct fetch() with
+ * hardcoded credentials as headers. This is the most reliable approach
+ * for Vercel serverless — no SDK initialization, no module loading,
+ * no file system lookups, no config parsing.
+ *
+ * Text endpoint:  POST https://internal-api.z.ai/v1/chat/completions
+ * Vision endpoint: POST https://internal-api.z.ai/v1/chat/completions/vision
  */
 
 import { logger } from './logger'
 
-const ZAI_CONFIG = {
-  baseUrl: 'https://internal-api.z.ai/v1',
-  apiKey: 'Z.ai',
-  chatId: 'chat-29bf48db-839a-48ab-a402-026a1fd7cc19',
-  token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMmZkYWFkZmItZjAwMC00ODY3LWJiMDktZGM5Yjg1YTY5NzVlIiwiY2hhdF9pZCI6ImNoYXQtMjliZjQ4ZGItODM5YS00OGFiLWE0MDItMDI2YTFmZDdjYzE5IiwicGxhdGZvcm0iOiJ6YWkifQ.fMoxcqePFaXXPFrxh1ikzPOFYaFpyytyjc1QM8Nckf8',
-  userId: '2fdaadfb-f000-4867-bb09-dc9b85a6975e',
-}
+const ZAI_BASE_URL = 'https://internal-api.z.ai/v1'
+const ZAI_API_KEY = 'Z.ai'
+const ZAI_CHAT_ID = 'chat-29bf48db-839a-48ab-a402-026a1fd7cc19'
+const ZAI_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMmZkYWFkZmItZjAwMC00ODY3LWJiMDktZGM5Yjg1YTY5NzVlIiwiY2hhdF9pZCI6ImNoYXQtMjliZjQ4ZGItODM5YS00OGFiLWE0MDItMDI2YTFmZDdjYzE5IiwicGxhdGZvcm0iOiJ6YWkifQ.fMoxcqePFaXXPFrxh1ikzPOFYaFpyytyjc1QM8Nckf8'
+const ZAI_USER_ID = '2fdaadfb-f000-4867-bb09-dc9b85a6975e'
 
-let zaiInstance: Awaited<ReturnType<typeof import('z-ai-web-dev-sdk').default>> | null = null
-
-async function getZai() {
-  if (zaiInstance) return zaiInstance
-  try {
-    const ZAIModule = await import('z-ai-web-dev-sdk')
-    zaiInstance = new ZAIModule.default(ZAI_CONFIG)
-    return zaiInstance
-  } catch (err) {
-    logger.error('Aether · ZAI init failed:', err instanceof Error ? err.message : err)
-    return null
+function buildHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${ZAI_API_KEY}`,
+    'X-Z-AI-From': 'Z',
+    'X-Chat-Id': ZAI_CHAT_ID,
+    'X-User-Id': ZAI_USER_ID,
+    'X-Token': ZAI_TOKEN,
   }
 }
 
 /**
- * Text AI — ZAI chat.completions.create()
+ * Text AI — direct fetch to ZAI chat/completions
+ * No SDK, no module loading, just raw fetch.
  */
 export async function aiText(
   messages: Array<{ role: string; content: string }>,
   timeoutMs = 7000
 ): Promise<string | null> {
   try {
-    const zai = await getZai()
-    if (!zai) return null
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
-    const chatPromise = zai.chat.completions.create({ messages })
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))
-    const res = await Promise.race([chatPromise, timeoutPromise])
-    if (!res) return null
+    const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: buildHeaders(),
+      signal: controller.signal,
+      body: JSON.stringify({
+        messages,
+        thinking: { type: 'disabled' },
+      }),
+    })
 
-    const content = res.choices?.[0]?.message?.content
+    clearTimeout(timeout)
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      logger.warn(`Aether · aiText error ${res.status}: ${errText.slice(0, 200)}`)
+      return null
+    }
+
+    const json = await res.json()
+    const content = json?.choices?.[0]?.message?.content
     return typeof content === 'string' && content.trim() ? content.trim() : null
   } catch (err) {
-    logger.warn('Aether · aiText failed:', err instanceof Error ? err.message : err)
+    if (err instanceof Error && err.name === 'AbortError') {
+      logger.warn('Aether · aiText timed out')
+    } else {
+      logger.warn('Aether · aiText failed:', err instanceof Error ? err.message : err)
+    }
     return null
   }
 }
 
 /**
- * Vision AI — ZAI chat.completions.createVision()
+ * Vision AI — direct fetch to ZAI chat/completions/vision
+ * No SDK, no module loading, just raw fetch.
  */
 export async function aiVision(
   prompt: string,
@@ -63,28 +82,42 @@ export async function aiVision(
   timeoutMs = 8000
 ): Promise<string> {
   try {
-    const zai = await getZai()
-    if (!zai) return ''
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
-    const visionPromise = zai.chat.completions.createVision({
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: imageDataUrl } },
-        ],
-      }],
-      thinking: { type: 'disabled' },
+    const res = await fetch(`${ZAI_BASE_URL}/chat/completions/vision`, {
+      method: 'POST',
+      headers: buildHeaders(),
+      signal: controller.signal,
+      body: JSON.stringify({
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: imageDataUrl } },
+          ],
+        }],
+        thinking: { type: 'disabled' },
+      }),
     })
 
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))
-    const res = await Promise.race([visionPromise, timeoutPromise])
-    if (!res) return ''
+    clearTimeout(timeout)
 
-    const content = res.choices?.[0]?.message?.content
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      logger.warn(`Aether · aiVision error ${res.status}: ${errText.slice(0, 200)}`)
+      return ''
+    }
+
+    const json = await res.json()
+    const content = json?.choices?.[0]?.message?.content
     return typeof content === 'string' && content.trim() ? content.trim() : ''
   } catch (err) {
-    logger.warn('Aether · aiVision failed:', err instanceof Error ? err.message : err)
+    if (err instanceof Error && err.name === 'AbortError') {
+      logger.warn('Aether · aiVision timed out')
+    } else {
+      logger.warn('Aether · aiVision failed:', err instanceof Error ? err.message : err)
+    }
     return ''
   }
 }
