@@ -102,22 +102,22 @@ export async function POST(req: NextRequest) {
   const audioBase64 = hasAudio && typeof body.audio === 'string' ? body.audio : ''
 
   // ── RETURN IMMEDIATELY — the user sees their thought instantly ──
-  // The frontend will refetch in 2-3 seconds to pick up the enriched version.
+  // The frontend will refetch at 2s, 4s, 7s, 12s to pick up the enriched version.
 
-  // ── Step 2: BACKGROUND ENRICHMENT using after() ──
-  // after() runs after the response is sent to the client.
-  // On Vercel, after() gets the full function duration to finish.
-  after(enrichMemory(
-    userClient,
-    memoryId,
-    userId,
-    content,
-    finalContent,
-    imageBase64,
-    audioBase64,
-    hasImage,
-    hasAudio
-  ))
+  // ── Step 2: BACKGROUND ENRICHMENT ──
+  // Use after() to run enrichment after the response is sent.
+  // after() works on Vercel and gives the function extra time to finish.
+  const enrichmentPromise = enrichMemory(
+    userClient, memoryId, userId, content, finalContent,
+    imageBase64, audioBase64, hasImage, hasAudio
+  )
+
+  try {
+    after(enrichmentPromise)
+  } catch {
+    // after() not available — run as detached promise (best effort on Hobby plan)
+    enrichmentPromise.catch(() => {})
+  }
 
   return NextResponse.json({ success: true, id: memoryId })
 }
