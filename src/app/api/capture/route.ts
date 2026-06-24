@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
   const memoryId = data.id as string
 
   // ════════════════════════════════════════════════════════════════
-  // IMAGE PATH: Groq Vision → 3-line split → DB update
+  // IMAGE PATH: ZAI Vision → 3-line split → DB update
   // ════════════════════════════════════════════════════════════════
   if (hasImage && typeof body.image === 'string') {
     const rawOutput = await aiVision(VISION_PROMPT, body.image, 8000)

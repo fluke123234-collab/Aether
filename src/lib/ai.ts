@@ -1,16 +1,13 @@
 /**
- * Aether · Unified AI utility — tries Groq first, falls back to ZAI
+ * Aether · Unified AI utility — ZAI only (hardcoded config)
  * ------------------------------------------------------------
- * Groq: Fast (1-3s) but requires valid API key
- * ZAI: Slower (3-8s) but works with hardcoded config
- *
- * Both use `new ZAI(config)` / direct fetch — no file system deps.
+ * Uses `new ZAI(config)` with hardcoded credentials.
+ * No Groq, no env vars, no config files.
+ * Works on any host including Vercel.
  */
 
-import { groqText, groqVision, stripCodeFences } from './groq'
 import { logger } from './logger'
 
-// ── ZAI config (hardcoded — works on Vercel) ──
 const ZAI_CONFIG = {
   baseUrl: 'https://internal-api.z.ai/v1',
   apiKey: 'Z.ai',
@@ -20,6 +17,7 @@ const ZAI_CONFIG = {
 }
 
 let zaiInstance: Awaited<ReturnType<typeof import('z-ai-web-dev-sdk').default>> | null = null
+
 async function getZai() {
   if (zaiInstance) return zaiInstance
   try {
@@ -33,17 +31,12 @@ async function getZai() {
 }
 
 /**
- * Unified text AI — tries Groq (fast) then ZAI (reliable).
+ * Text AI — ZAI chat.completions.create()
  */
 export async function aiText(
   messages: Array<{ role: string; content: string }>,
   timeoutMs = 7000
 ): Promise<string | null> {
-  // Try Groq first (1-3s, if key is valid)
-  const groqResult = await groqText(messages, timeoutMs)
-  if (groqResult) return groqResult
-
-  // Fall back to ZAI (3-8s, always works)
   try {
     const zai = await getZai()
     if (!zai) return null
@@ -56,24 +49,19 @@ export async function aiText(
     const content = res.choices?.[0]?.message?.content
     return typeof content === 'string' && content.trim() ? content.trim() : null
   } catch (err) {
-    logger.warn('Aether · ZAI text fallback failed:', err instanceof Error ? err.message : err)
+    logger.warn('Aether · aiText failed:', err instanceof Error ? err.message : err)
     return null
   }
 }
 
 /**
- * Unified vision AI — tries Groq (fast) then ZAI (reliable).
+ * Vision AI — ZAI chat.completions.createVision()
  */
 export async function aiVision(
   prompt: string,
   imageDataUrl: string,
   timeoutMs = 8000
 ): Promise<string> {
-  // Try Groq first (fast, if key is valid)
-  const groqResult = await groqVision(prompt, imageDataUrl, timeoutMs)
-  if (groqResult) return groqResult
-
-  // Fall back to ZAI (reliable)
   try {
     const zai = await getZai()
     if (!zai) return ''
@@ -96,9 +84,18 @@ export async function aiVision(
     const content = res.choices?.[0]?.message?.content
     return typeof content === 'string' && content.trim() ? content.trim() : ''
   } catch (err) {
-    logger.warn('Aether · ZAI vision fallback failed:', err instanceof Error ? err.message : err)
+    logger.warn('Aether · aiVision failed:', err instanceof Error ? err.message : err)
     return ''
   }
 }
 
-export { stripCodeFences }
+/**
+ * Strip markdown code fences from a string.
+ */
+export function stripCodeFences(raw: string): string {
+  let cleaned = raw.trim()
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json|text|html)?\s*/i, '').replace(/\s*```$/, '')
+  }
+  return cleaned
+}
