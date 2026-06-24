@@ -87,7 +87,8 @@ export async function POST(req: NextRequest) {
 
     const prompt = `${VISION_PROMPT}\n\nQuestion: ${question || 'What is in this image?'}\n\nRespond with JSON:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}`
 
-    const raw = await geminiVision(prompt, visionImage, mimeType, 7000)
+    // 8s timeout for vision — gives the proxy enough time
+    const raw = await geminiVision(prompt, visionImage, mimeType, 8000)
 
     if (raw) {
       const parsed = parseAnswer(raw, memories)
@@ -95,17 +96,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
     }
 
-    // VLM failed — return cached description immediately
-    logger.warn('Aether · Gemini vision failed, returning cached description')
+    // VLM failed — try text AI with the cached description from the body
+    logger.warn('Aether · Gemini vision failed, trying text AI with cached description')
     const imgMem = memories.find(m => m.id === imageMemoryId)
     const cached = imgMem?.body?.match(/\[Image content: ([\s\S]+)\]/)?.[1] || ''
     const isFallback = cached.includes('A captured image. Ask Aether to analyze')
 
+    if (cached && !isFallback) {
+      // Use text AI to answer the question from the cached description
+      const textPrompt = `Based on this cached image description, answer the user's question. Respond with JSON only: {"answer":"...","memoryIds":["${imageMemoryId || ''}"]}\n\nCached description: ${cached}\n\nQuestion: ${question}`
+      const textResult = await geminiText(textPrompt, SYSTEM_PROMPT, 6000)
+      if (textResult) {
+        const parsed = parseAnswer(textResult, memories)
+        if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) parsed.memoryIds.unshift(imageMemoryId)
+        return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
+      }
+      // Text AI also failed — return the raw cached description
+      return NextResponse.json({
+        success: true,
+        answer: `Based on what I captured: ${cached.slice(0, 500)}`,
+        memoryIds: imageMemoryId ? [imageMemoryId] : []
+      } satisfies AskResponse)
+    }
+
+    // No cached description or it's the fallback text
     return NextResponse.json({
       success: true,
-      answer: cached && !isFallback
-        ? `Based on what I captured: ${cached.slice(0, 400)}`
-        : "I can see your image but couldn't analyze it right now. Please try again.",
+      answer: "I can see your image but couldn't analyze it. The image may have been captured before the analysis engine was available. Try deleting and re-capturing it.",
       memoryIds: imageMemoryId ? [imageMemoryId] : []
     } satisfies AskResponse)
   }
