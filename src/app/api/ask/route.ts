@@ -1,9 +1,8 @@
 /**
- * Aether · /api/ask — Gemini text + vision (Vercel 10s optimized)
+ * Aether · /api/ask — Token-optimized, strict path separation
  * ------------------------------------------------------------
- * CRITICAL: VLM and text AI NEVER run sequentially.
- * - VLM path: 6s timeout → return result OR cached description (instant)
- * - Text path: 8s timeout (full budget, no VLM ran first)
+ * VLM only activates if question is image-related AND imageData exists.
+ * Text path reads all 10 memories (400 chars each) including link/voice.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -21,28 +20,10 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 type MemoryRef = { id: string; title: string; body: string }
 type AskResponse = { success: boolean; answer: string; memoryIds: string[]; error?: string }
 
-const SYSTEM_PROMPT = `You are Aether — a warm, brilliant companion in a quiet digital sanctuary. You speak with clean, friendly authority — like a sharp friend who actually cares. Be helpful, specific, and natural. Never robotic or generic.
+// Ultra-compressed system prompt (< 120 words)
+const SYSTEM_PROMPT = `You are Aether—a brilliant, warm companion. You process text logs, webpages, voice notes, and images natively. Voice records are transcribed word-for-word into the body field. Link memories contain scraped webpage summaries. Read the body text and answer naturally. Never say you cannot—use the data available. Respond with JSON only: {"answer":"...","memoryIds":["id1"]}`
 
-You have full multimodal awareness:
-- Text memories are stored as-is in the body field
-- Image memories have their full visual description embedded in the body
-- Voice notes are transcribed word-for-word into the body
-- Link memories have the scraped webpage summary in the body
-All of these are fully searchable — just read the body text and answer naturally.
-
-Never say you "cannot" do something. If the data is in the memories, use it. If you truly don't have enough info, say so warmly and suggest what the user could add.
-
-Respond with JSON only:
-{"answer":"...","memoryIds":["id1"]}`
-
-const VISION_PROMPT = `You are Aether — a warm, brilliant companion looking at an image from the user's sanctuary. Read everything visible: text, labels, specs, prices, components. Be thorough and accurate.
-
-If text is blurry, try your best to read it from context. Only say something is unclear if it's genuinely unreadable after careful examination. Never just say "illegible" — describe what you CAN see and note which parts are hard to read.
-
-Answer the user's question warmly and specifically. If they ask about prices, find the prices. If they ask about components, list the components.
-
-Respond with JSON only:
-{"answer":"...","memoryIds":["id1"]}`
+const VISION_PROMPT = `You are Aether. Read the image pixels. Extract all text, labels, specs, prices accurately. Never just say "illegible"—describe what you CAN see. Answer the question warmly. JSON only: {"answer":"...","memoryIds":["id1"]}`
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
@@ -65,40 +46,36 @@ export async function POST(req: NextRequest) {
 
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
 
-  // ── POOL-SAFE: Load 5 most recent memories, lean fields only ──
+  // ── Load 10 recent memories, 400 chars each (token economy) ──
   const { data: rows } = await userClient
     .from('memories').select('id, title, body, tags, category, created_at')
-    .eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(5)
+    .eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(10)
 
   const memories: MemoryRef[] = (rows ?? []).map((r) => ({
-    id: r.id, title: r.title || 'Untitled', body: (r.body || '').slice(0, 500)
+    id: r.id, title: r.title || 'Untitled', body: (r.body || '').slice(0, 400)
   }))
 
-  // ── Check for image memory ──
-  // Only auto-attach image pixels if the user's question seems image-related.
-  // This prevents the VLM from hijacking every question (e.g., "what is the gut
-  // brain connection" should use text-only path with link summaries, not send
-  // the PC build image to the VLM).
+  // ── STRICT PATH SEPARATION: only find image if question is image-related ──
   let visionImage = userImage || memImage
   let imageMemoryId: string | undefined
 
-  // Only search for image memories if:
-  // 1. User explicitly attached an image (userImage/memImage), OR
-  // 2. User's question contains image-related keywords
+  // Keyword gate: only search for images if question seems visual
   const imageKeywords = /\b(image|picture|photo|screenshot|pic|see|what.?s in|what.?s on|read the|look at|scan|spec|price|cost|how much|component|part|build|chart|diagram|label)\b/i
   const seemsImageRelated = imageKeywords.test(question)
 
   if (!visionImage && seemsImageRelated) {
-    const { data: imageRow } = await userClient
+    // Query only for memories with imageData in metadata
+    const { data: imageRows } = await userClient
       .from('memories').select('id, metadata')
       .eq('user_id', authData.user.id)
       .not('metadata', 'is', null)
       .order('created_at', { ascending: false })
       .limit(10)
 
-    const found = (imageRow ?? []).find((m) => {
+    // STRICT: only activate VLM if metadata has actual imageData field
+    const found = (imageRows ?? []).find((m) => {
       const meta = m.metadata as { imageData?: string } | null
-      return meta?.imageData?.startsWith('data:image/')
+      return meta && typeof meta === 'object' && 'imageData' in meta && meta.imageData?.startsWith('data:image/')
     })
 
     if (found) {
@@ -116,15 +93,14 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 1: VISION — 6s timeout, NO text AI fallback after
+  // ROUTE 1: VISION — 6s timeout, immediate fallback on failure
   // ════════════════════════════════════════════════════════════════
   if (visionImage) {
     const mimeMatch = visionImage.match(/^data:(image\/[a-z]+);/)
     const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg'
 
-    const prompt = `${VISION_PROMPT}\n\nQuestion: ${question || 'What is in this image?'}\n\nRespond with JSON:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}`
+    const prompt = `${VISION_PROMPT}\n\nQuestion: ${question || 'What is in this image?'}\n\nJSON: {"answer":"...","memoryIds":["${imageMemoryId || ''}"]}`
 
-    // 6s timeout — leaves 4s for DB/response within Vercel's 10s
     const raw = await geminiVision(prompt, visionImage, mimeType, 6000)
 
     if (raw) {
@@ -133,30 +109,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
     }
 
-    // VLM failed — return cached description IMMEDIATELY (no second AI call)
-    // This prevents the 8s + 6s = 14s timeout that was causing "processing slowly"
-    logger.warn('Aether · VLM failed, returning cached description')
+    // VLM failed — return cached body text immediately (no second AI call)
+    logger.warn('Aether · VLM failed, returning cached text')
     const imgMem = memories.find(m => m.id === imageMemoryId)
     const cached = imgMem?.body || ''
-    const isFallback = cached.includes('A captured image') || cached.trim() === '' || cached === 'Image capture' || cached.length < 20
+    const isFallback = !cached || cached.length < 20 || cached === 'Image capture'
 
     return NextResponse.json({
       success: true,
       answer: cached && !isFallback
         ? cached.slice(0, 500)
-        : "I can see your image but I'm having trouble reading the pixels right now. Give it another try in a moment — the analysis engine might be warming up.",
+        : "I can see your image but I'm having trouble reading it right now. Try again in a moment.",
       memoryIds: imageMemoryId ? [imageMemoryId] : []
     } satisfies AskResponse)
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 2: TEXT-ONLY — 8s timeout (full budget, no VLM ran)
+  // ROUTE 2: TEXT-ONLY — 8s timeout (full budget)
+  // Reads ALL memories: text, link summaries, voice transcriptions
   // ════════════════════════════════════════════════════════════════
   const context = memories.length > 0
-    ? `MEMORIES:\n${memories.map(m => `id=${m.id} | ${m.title}: ${m.body.slice(0, 200)}`).join('\n')}\n\n`
+    ? memories.map(m => `id=${m.id} | ${m.title}: ${m.body}`).join('\n')
     : ''
 
-  const fullPrompt = `${context}Question: ${question}\n\nRespond with JSON only: {"answer":"...","memoryIds":["id1"]}`
+  const fullPrompt = `${context}\n\nQuestion: ${question}\n\nJSON: {"answer":"...","memoryIds":["id1"]}`
 
   const raw = await geminiText(fullPrompt, SYSTEM_PROMPT, 8000)
   if (raw) {
@@ -166,7 +142,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    answer: "I'm having a slow moment right now — give me a second and try that again.",
+    answer: "I'm having a slow moment — try that again in a second.",
     memoryIds: []
   } satisfies AskResponse)
 }

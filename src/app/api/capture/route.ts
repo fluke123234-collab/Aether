@@ -160,7 +160,7 @@ export async function POST(req: NextRequest) {
       await userClient.from('memories').update({
         title, body: enrichedBody, content: enrichedBody,
         summary: transcription.slice(0, 280),
-        tags, category: 'others', processing: false,
+        tags, category: resolveCategory(tags, title, transcription), processing: false,
         metadata: { title, summary: transcription.slice(0, 280), tags, type: 'voice',
           audioData: audioPayload, searchKeywords: tags },
       }).eq('id', memoryId)
@@ -245,7 +245,7 @@ ${scrapedContent}`
         await userClient.from('memories').update({
           title, body: enrichedBody, content: enrichedBody,
           summary: summary.slice(0, 280),
-          tags, category: 'others', processing: false,
+          tags, category: resolveCategory(tags, title, transcription), processing: false,
           metadata: { title, summary: summary.slice(0, 280), tags, type: 'link',
             sourceUrl: incomingUrl, originalScrape: scrapedContent.slice(0, 4000), searchKeywords: tags },
         }).eq('id', memoryId)

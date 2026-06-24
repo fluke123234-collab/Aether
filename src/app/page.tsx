@@ -7,7 +7,6 @@ import {
   Search,
   Image as ImageIcon,
   Mic,
-  Link2,
   ArrowUp,
   Sparkles,
   Clock,
@@ -351,7 +350,6 @@ function FloatingCapsule({
         )}
         <div className="flex shrink-0 items-center gap-0.5">
           <CapsuleAction icon={ImageIcon} label="Attach image" onClick={handleImagePick} active={!!pendingImage} />
-          <CapsuleAction icon={Link2} label="Attach link" onClick={() => ensureAuthenticated(() => toast('Link attach is coming soon.'))} />
           <CapsuleAction icon={Mic} label={listening || recorder.listening ? 'Stop recording' : 'Voice capture'} onClick={handleVoice} active={listening || recorder.listening} />
           <button
             aria-label="Capture thought"
