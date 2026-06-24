@@ -175,6 +175,102 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
+  // URL PATH: Web scrape → Gemini synthesis → 3-line split → DB update
+  // ════════════════════════════════════════════════════════════════
+  const isUrl = /^https?:\/\/[^\s]+/i.test(content)
+  if (isUrl) {
+    const incomingUrl = content.match(/^(https?:\/\/[^\s]+)/i)?.[1] || content
+    let scrapedContent = ''
+
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5000)
+      const webResponse = await fetch(incomingUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+        signal: controller.signal,
+      })
+      clearTimeout(timeout)
+
+      if (webResponse.ok) {
+        const htmlText = await webResponse.text()
+        scrapedContent = htmlText
+          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+          .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 6000)
+      }
+    } catch (err) {
+      logger.warn('Aether · URL scrape failed:', err instanceof Error ? err.message.slice(0, 80) : err)
+    }
+
+    if (scrapedContent) {
+      const URL_PROMPT = `Analyze this scraped webpage content text. Output exactly 3 lines:
+[Line 1: A clean, context-focused title for the memory under 5 words summarizing the page]
+[Line 2: Exactly 5 comma-separated indexing tags like: tag1, tag2, tag3, tag4, tag5]
+[Line 3+: A concise but highly detailed architectural summary of the core knowledge on this page]
+No JSON, no markdown. Just raw text in the exact layout above.
+
+Content:
+${scrapedContent}`
+
+      const rawOutput = await geminiText(URL_PROMPT, undefined, 8000)
+
+      if (rawOutput) {
+        const lines = rawOutput.split('\n').map(l => l.trim()).filter(Boolean)
+        let title = 'Web link'
+        let tags: string[] = ['link', 'capture']
+        let summary = rawOutput
+
+        if (lines.length >= 3) {
+          title = lines[0].slice(0, 80)
+          const parsedTags = lines[1].toLowerCase().split(',').map(t => t.trim()).filter(Boolean).slice(0, 5)
+          if (parsedTags.length >= 2) tags = ['link', ...parsedTags.filter(t => t !== 'link')].slice(0, 5)
+          summary = lines.slice(2).join(' ')
+        } else if (lines.length === 1) {
+          title = lines[0].slice(0, 80)
+        }
+
+        const enrichedBody = summary.slice(0, 1000)
+
+        await userClient.from('memories').update({
+          title, body: enrichedBody, content: enrichedBody,
+          summary: summary.slice(0, 280),
+          tags, category: 'link', processing: false,
+          metadata: { title, summary: summary.slice(0, 280), tags, type: 'link',
+            sourceUrl: incomingUrl, originalScrape: scrapedContent.slice(0, 4000), searchKeywords: tags },
+        }).eq('id', memoryId)
+
+        logger.info(`SUCCESS: URL memory ${memoryId} — title: "${title}"`)
+        return NextResponse.json({ success: true, id: memoryId, enriched: true })
+      }
+
+      // Gemini failed — store URL with basic info
+      logger.warn('Aether · URL synthesis failed, storing basic link')
+      await userClient.from('memories').update({
+        title: incomingUrl.slice(0, 60),
+        body: scrapedContent.slice(0, 500),
+        summary: '', tags: ['link', 'capture'],
+        category: 'link', processing: false,
+        metadata: { sourceUrl: incomingUrl, originalScrape: scrapedContent.slice(0, 4000) },
+      }).eq('id', memoryId)
+      return NextResponse.json({ success: true, id: memoryId })
+    }
+
+    // Scrape failed — store as plain text link
+    logger.warn('Aether · URL scrape failed, storing as plain text')
+    await userClient.from('memories').update({
+      title: incomingUrl.slice(0, 60),
+      body: incomingUrl,
+      summary: '', tags: ['link', 'capture'],
+      category: 'link', processing: false,
+      metadata: { sourceUrl: incomingUrl },
+    }).eq('id', memoryId)
+    return NextResponse.json({ success: true, id: memoryId })
+  }
+
+  // ════════════════════════════════════════════════════════════════
   // TEXT PATH: Gemini text enrichment
   // ════════════════════════════════════════════════════════════════
   const textForEnrichment = content || (hasAudio ? 'Voice note' : '')
