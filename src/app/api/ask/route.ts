@@ -96,11 +96,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
     }
 
-    // VLM failed — try text AI with the cached description from the body
+    // VLM failed — try text AI with the cached description from metadata
     logger.warn('Aether · Gemini vision failed, trying text AI with cached description')
     const imgMem = memories.find(m => m.id === imageMemoryId)
-    const cached = imgMem?.body?.match(/\[Image content: ([\s\S]+)\]/)?.[1] || ''
-    const isFallback = cached.includes('A captured image. Ask Aether to analyze')
+    // Use the full body text as the cached description (no more [Image content:] wrapper)
+    const cached = imgMem?.body || ''
+    const isFallback = cached.includes('A captured image. Ask Aether to analyze') || cached.trim() === '' || cached === 'Image capture'
 
     if (cached && !isFallback) {
       // Use text AI to answer the question from the cached description

@@ -97,7 +97,9 @@ export async function POST(req: NextRequest) {
         title = lines[0].slice(0, 80)
       }
 
-      const enrichedBody = `${content || 'Image capture'}\n\n[Image content: ${description}]`.slice(0, 1000)
+      // Store description in body for search, but WITHOUT the [Image content:] wrapper
+      // so it doesn't show on the card. The raw description IS the body.
+      const enrichedBody = (content ? content + '\n\n' : '') + description.slice(0, 800)
 
       await userClient.from('memories').update({
         title, body: enrichedBody, content: enrichedBody,
@@ -114,8 +116,8 @@ export async function POST(req: NextRequest) {
     logger.warn('Aether · Gemini vision failed for capture, using fallback')
     await userClient.from('memories').update({
       title: content ? content.slice(0, 60) : 'Image capture',
-      body: `${content || 'Image capture'}\n\n[Image content: A captured image. Ask Aether to analyze it.]`,
-      summary: 'A captured image.', tags: ['image', 'capture', 'visual'],
+      body: content || 'Image capture',
+      summary: '', tags: ['image', 'capture'],
       category: 'image', processing: false,
       metadata: { imageDescription: 'A captured image. Ask Aether to analyze it.', imageData: base64Payload },
     }).eq('id', memoryId)
@@ -147,9 +149,10 @@ export async function POST(req: NextRequest) {
     const title = typeof aiData.title === 'string' && aiData.title.trim() ? aiData.title.trim().slice(0, 80) : 'Untitled Thought'
     const summary = typeof aiData.summary === 'string' ? aiData.summary.trim().slice(0, 280) : ''
     let tags: string[] = Array.isArray(aiData.tags) ? aiData.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map(t => t.trim()).slice(0, 5) : []
-    if (tags.length === 0) tags = hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note']
+    if (tags.length === 0) tags = hasAudio ? ['voice', 'capture'] : ['capture', 'note']
     const correctedBody = typeof aiData.body === 'string' && aiData.body.trim() ? aiData.body.trim().slice(0, 500) : finalContent
-    const memoryType = classifyMemoryType(correctedBody)
+    // Single-category: use the first tag as the primary category, fallback to classifyMemoryType
+    const memoryType = tags.length > 0 ? tags[0] : classifyMemoryType(correctedBody)
 
     const metadataObj: Record<string, unknown> = { title, summary, tags, type: memoryType, searchKeywords: tags }
     if (hasAudio && typeof body.audio === 'string') metadataObj.audioData = body.audio

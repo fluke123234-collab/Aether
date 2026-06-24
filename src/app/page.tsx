@@ -598,7 +598,7 @@ function MemoryCard({
       )}
 
       <p className="mb-5 font-display text-[15px] leading-relaxed text-zinc-600 dark:text-zinc-300">
-        {memory.body}
+        {memory.body?.replace(/\s*\[Image content:[\s\S]*?\]\s*/g, '').trim() || memory.body}
       </p>
 
       {/* Action row: insight / ask-about-image / PDF / delete — appears on hover */}
