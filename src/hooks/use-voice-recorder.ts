@@ -1,23 +1,20 @@
 'use client'
 
 /**
- * Aether · useVoiceRecorder
+ * Aether · useVoiceRecorder — Persistent stream recorder
  * ------------------------------------------------------------
- * Native Web Audio recording + real-time frequency analysis.
+ * Uses MediaRecorder with continuous time-slice (250ms) to prevent
+ * premature dropouts from silence detection or mobile background
+ * thread switches. The stream stays open until the user manually
+ * hits stop.
  *
  * Engine:
- *  - navigator.mediaDevices.getUserMedia → MediaStream
- *  - MediaRecorder → compressed audio/webm blob (for playback + storage)
- *  - AudioContext + AnalyserNode (fftSize=64) → live frequency data array
+ *  - getUserMedia → persistent MediaStream (stays open)
+ *  - MediaRecorder.start(250) → continuous chunk appending
+ *  - AudioContext + AnalyserNode (fftSize=64) → live waveform
  *
- * Outputs:
- *  - listening: boolean (recording active)
- *  - frequencyData: Uint8Array(32) — real-time mic amplitude per bin
- *  - audioData: string | null — base64 data URL of the recorded blob
- *  - start() / stop()
- *
- * The frequencyData array drives the live VoiceWaveform canvas.
- * Designed to be entirely encapsulated — no global state leakage.
+ * The 250ms time-slice forces ondataavailable to fire every 250ms,
+ * keeping the recorder alive even during silence pauses.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -45,14 +42,13 @@ export function useVoiceRecorder() {
     )
   })
 
-  // ── RAF loop: poll analyser frequency data and push to state ──
+  // ── RAF loop: poll analyser frequency data ──
   const startFrequencyLoop = useCallback(() => {
     const analyser = analyserRef.current
     if (!analyser) return
     const buffer = new Uint8Array(analyser.frequencyBinCount)
     const tick = () => {
       analyser.getByteFrequencyData(buffer)
-      // Copy to a new array so React detects the state change
       setFrequencyData(new Uint8Array(buffer))
       rafRef.current = requestAnimationFrame(tick)
     }
@@ -85,13 +81,10 @@ export function useVoiceRecorder() {
 
   const start = useCallback(async (): Promise<boolean> => {
     if (!supported) return false
-    // Reset state
     setAudioData(null)
     audioChunksRef.current = []
 
     try {
-      // Down-sample to 16kHz mono for 70% smaller payloads while keeping
-      // word-for-word accuracy crisp for Gemini's voice recognition
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           sampleRate: 16000,
@@ -102,34 +95,54 @@ export function useVoiceRecorder() {
       })
       streamRef.current = stream
 
-      // ── MediaRecorder for blob capture ──
-      const mr = new MediaRecorder(stream, {
-        audioBitsPerSecond: 16000, // 16kbps — tiny but clear for speech
-      })
-      mr.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      // ── Pick the best supported codec ──
+      let mimeType = 'audio/webm;codecs=opus'
+      if (typeof MediaRecorder.isTypeSupported === 'function') {
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : ''
+        }
       }
+
+      // ── MediaRecorder with continuous time-slice (250ms) ──
+      // The 250ms slice forces ondataavailable to fire every 250ms,
+      // keeping the recorder alive even during silence pauses.
+      // This prevents the "stops suddenly" bug on mobile.
+      const mr = new MediaRecorder(stream, {
+        mimeType: mimeType || undefined,
+        audioBitsPerSecond: 16000,
+      })
+
+      mr.ondataavailable = (e) => {
+        // Continuously append chunks — never drop data
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data)
+        }
+      }
+
       mr.onstop = () => {
+        // Assemble ALL accumulated chunks into one blob
+        if (audioChunksRef.current.length === 0) return
         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
         const reader = new FileReader()
         reader.onload = () => setAudioData(reader.result as string)
         reader.readAsDataURL(blob)
       }
-      mr.start()
+
+      // Start with 250ms time-slice — continuous streaming, no auto-stop
+      mr.start(250)
       mediaRecorderRef.current = mr
 
-      // ── AudioContext + AnalyserNode for real-time frequency data ──
+      // ── AudioContext + AnalyserNode for live waveform ──
       const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       const ctx = new AC()
       audioContextRef.current = ctx
       const source = ctx.createMediaStreamSource(stream)
       sourceRef.current = source
       const analyser = ctx.createAnalyser()
-      analyser.fftSize = 64          // 32 bins — perfect for a 24-28 bar visualizer
+      analyser.fftSize = 64
       analyser.smoothingTimeConstant = 0.75
       analyserRef.current = analyser
       source.connect(analyser)
-      // Note: analyser is NOT connected to destination — no feedback/echo
 
       setListening(true)
       startFrequencyLoop()
@@ -144,12 +157,20 @@ export function useVoiceRecorder() {
   const stop = useCallback(() => {
     setListening(false)
     stopFrequencyLoop()
-    try { mediaRecorderRef.current?.stop() } catch {}
-    // Cleanup audio context + tracks after a short delay (let onstop fire)
-    setTimeout(() => cleanup(), 200)
+
+    // Stop the MediaRecorder — this triggers onstop which assembles the blob
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        // Request any remaining data before stopping
+        mediaRecorderRef.current.requestData()
+        mediaRecorderRef.current.stop()
+      } catch {}
+    }
+
+    // Cleanup after onstop has time to fire
+    setTimeout(() => cleanup(), 300)
   }, [stopFrequencyLoop, cleanup])
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => cleanup()
   }, [cleanup])

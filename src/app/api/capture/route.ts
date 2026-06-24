@@ -29,10 +29,11 @@ const ENRICHMENT_PROMPT = `You are Aether's memory curator. Return JSON only.
 Title max 5 words. Summary 1 sentence. 5 contextual tags.
 Return: {"title":"...","summary":"...","tags":["t1","t2","t3","t4","t5"],"body":"corrected text"}`
 
-const AUDIO_PROMPT = `Listen to this audio clip. Output exactly 3 lines:
-[Line 1: A brief title summarizing the voice note in under 5 words]
-[Line 2: Exactly 5 comma-separated indexing tags like: tag1, tag2, tag3, tag4, tag5]
-[Line 3: The exact word-for-word text transcription of what was said]
+const AUDIO_PROMPT = `Listen to this audio clip with absolute phonetic precision. Do not summarize or paraphrase.
+Output exactly 3 lines:
+[Line 1: A brief title summarizing the voice note under 5 words]
+[Line 2: Exactly 5 comma-separated indexing tags matching our strict 6-category keyword matrix: work, books, ideas, food, entertainment, others]
+[Line 3: Provide the absolute, word-for-word, literal transcription of every single vocal sound or word spoken in the file]
 No JSON, no markdown. Just raw text in the exact layout above.`
 
 export async function POST(req: NextRequest) {
