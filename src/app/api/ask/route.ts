@@ -1,14 +1,8 @@
 /**
- * Aether · /api/ask — Direct fetch AI (Vercel 10s optimized)
+ * Aether · /api/ask — Uses ZAI.create() + .z-ai-config (works on Vercel)
  * ------------------------------------------------------------
- * Vercel Hobby = 10s HARD limit. maxDuration=60 is ignored on Hobby.
- * 
- * Flow:
- * 1. Auth + DB query (10 memories, no metadata): ~700ms
- * 2. If image memory exists: VLM (6s) → cached desc fallback (0s)
- * 3. If no image: text AI (6s) — uses trimmed context for speed
- * 
- * Total: ~7s max — fits within 10s.
+ * The .z-ai-config file is deployed to Vercel and has the correct token.
+ * ZAI.create() reads it via loadConfig() from process.cwd()/.z-ai-config.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -22,61 +16,18 @@ export const dynamic = 'force-dynamic'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-const ZAI_BASE_URL = 'https://internal-api.z.ai/v1'
-const ZAI_API_KEY = 'Z.ai'
-const ZAI_CHAT_ID = 'chat-29bf48db-839a-48ab-a402-026a1fd7cc19'
-const ZAI_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMmZkYWFkZmItZjAwMC00ODY3LWJiMDktZGM5Yjg1YTY5NzVlIiwiY2hhdF9pZCI6ImNoYXQtMjliZjQ4ZGItODM5YS00OGFiLWE0MDItMDI2YTFmZDdjYzE5IiwicGxhdGZvcm0iOiJ6YWkifQ.fMoxcqePFaXXPFrxh1ikzPOFYaFpyytyjc1QM8Nckf8'
-const ZAI_USER_ID = '2fdaadfb-f000-4867-bb09-dc9b85a6975e'
-
-function zaiHeaders(): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${ZAI_API_KEY}`,
-    'X-Z-AI-From': 'Z',
-    'X-Chat-Id': ZAI_CHAT_ID,
-    'X-User-Id': ZAI_USER_ID,
-    'X-Token': ZAI_TOKEN,
+// ── ZAI singleton — created once via ZAI.create() ──
+let zaiInstance: any = null
+async function getZai() {
+  if (zaiInstance) return zaiInstance
+  try {
+    const ZAIModule = await import('z-ai-web-dev-sdk')
+    zaiInstance = await ZAIModule.default.create()
+    return zaiInstance
+  } catch (err) {
+    logger.error('Aether · ZAI.create() failed:', err instanceof Error ? err.message : err)
+    return null
   }
-}
-
-/** Direct fetch to ZAI text API with hard timeout */
-async function zaiText(messages: Array<{ role: string; content: string }>, timeoutMs = 6000): Promise<string | null> {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
-    const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
-      method: 'POST', headers: zaiHeaders(), signal: controller.signal,
-      body: JSON.stringify({ messages, thinking: { type: 'disabled' } }),
-    })
-    clearTimeout(timeout)
-    if (!res.ok) return null
-    const json = await res.json()
-    const content = json?.choices?.[0]?.message?.content
-    return typeof content === 'string' && content.trim() ? content.trim() : null
-  } catch { return null }
-}
-
-/** Direct fetch to ZAI vision API with hard timeout */
-async function zaiVision(prompt: string, imageDataUrl: string, timeoutMs = 6000): Promise<string> {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
-    const res = await fetch(`${ZAI_BASE_URL}/chat/completions/vision`, {
-      method: 'POST', headers: zaiHeaders(), signal: controller.signal,
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: imageDataUrl } },
-        ]}],
-        thinking: { type: 'disabled' },
-      }),
-    })
-    clearTimeout(timeout)
-    if (!res.ok) return ''
-    const json = await res.json()
-    const content = json?.choices?.[0]?.message?.content
-    return typeof content === 'string' && content.trim() ? content.trim() : ''
-  } catch { return '' }
 }
 
 function stripFences(raw: string): string {
@@ -142,17 +93,36 @@ export async function POST(req: NextRequest) {
     imageMemoryId = memories.find(m => m.body?.includes('[Image content:'))?.id
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // ROUTE 1: VISION (6s timeout, return immediately on failure)
-  // ════════════════════════════════════════════════════════════════
-  if (visionImage) {
-    const prompt = `You are Aether. Read the image pixels. Extract all text, labels, specs exactly. Respond with JSON only:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}\n\nQuestion: ${question || 'What is in this image?'}`
+  const zai = await getZai()
 
-    const raw = await zaiVision(prompt, visionImage, 6000)
-    if (raw) {
-      const parsed = parseAnswer(raw, memories)
-      if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) parsed.memoryIds.unshift(imageMemoryId)
-      return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
+  // ════════════════════════════════════════════════════════════════
+  // ROUTE 1: VISION
+  // ════════════════════════════════════════════════════════════════
+  if (visionImage && zai) {
+    try {
+      const prompt = `You are Aether. Read the image pixels. Extract all text, labels, specs exactly. Respond with JSON only:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}\n\nQuestion: ${question || 'What is in this image?'}`
+
+      const visionPromise = zai.chat.completions.createVision({
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: visionImage } },
+        ]}],
+        thinking: { type: 'disabled' },
+      })
+
+      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 6000))
+      const res = await Promise.race([visionPromise, timeoutPromise])
+
+      if (res) {
+        const raw = res.choices?.[0]?.message?.content ?? ''
+        if (raw.trim()) {
+          const parsed = parseAnswer(raw, memories)
+          if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) parsed.memoryIds.unshift(imageMemoryId)
+          return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
+        }
+      }
+    } catch (err) {
+      logger.warn('Aether · vision failed:', err instanceof Error ? err.message : err)
     }
 
     // VLM failed — return cached description immediately
@@ -170,8 +140,16 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ROUTE 2: TEXT-ONLY (6s timeout — leaves 3s buffer for DB/auth)
+  // ROUTE 2: TEXT-ONLY
   // ════════════════════════════════════════════════════════════════
+  if (!zai) {
+    return NextResponse.json({
+      success: true,
+      answer: "My connection to your sanctuary is processing slowly right now. Let's try that thought again in a moment.",
+      memoryIds: []
+    } satisfies AskResponse)
+  }
+
   const context = memories.length > 0
     ? `MEMORIES:\n${memories.map(m => `id=${m.id} | ${m.title}: ${m.body.slice(0, 150)}`).join('\n')}\n\n`
     : ''
@@ -182,10 +160,20 @@ export async function POST(req: NextRequest) {
     { role: 'user', content: context + question }
   ]
 
-  const raw = await zaiText(messages, 6000)
-  if (raw) {
-    const parsed = parseAnswer(raw, memories)
-    return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
+  try {
+    const chatPromise = zai.chat.completions.create({ messages })
+    const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 6000))
+    const res = await Promise.race([chatPromise, timeoutPromise])
+
+    if (res) {
+      const raw = res.choices?.[0]?.message?.content ?? ''
+      if (raw.trim()) {
+        const parsed = parseAnswer(raw, memories)
+        return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
+      }
+    }
+  } catch (err) {
+    logger.warn('Aether · text failed:', err instanceof Error ? err.message : err)
   }
 
   return NextResponse.json({

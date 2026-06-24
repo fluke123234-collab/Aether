@@ -1,7 +1,5 @@
 /**
- * Aether · /api/capture — Fully inlined, no imports, direct fetch
- * ------------------------------------------------------------
- * All ZAI logic inline. No SDK, no ai.ts, no vlm.ts.
+ * Aether · /api/capture — Uses ZAI.create() + .z-ai-config (works on Vercel)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -15,59 +13,17 @@ export const dynamic = 'force-dynamic'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-const ZAI_BASE_URL = 'https://internal-api.z.ai/v1'
-const ZAI_API_KEY = 'Z.ai'
-const ZAI_CHAT_ID = 'chat-29bf48db-839a-48ab-a402-026a1fd7cc19'
-const ZAI_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMmZkYWFkZmItZjAwMC00ODY3LWJiMDktZGM5Yjg1YTY5NzVlIiwiY2hhdF9pZCI6ImNoYXQtMjliZjQ4ZGItODM5YS00OGFiLWE0MDItMDI2YTFmZDdjYzE5IiwicGxhdGZvcm0iOiJ6YWkifQ.fMoxcqePFaXXPFrxh1ikzPOFYaFpyytyjc1QM8Nckf8'
-const ZAI_USER_ID = '2fdaadfb-f000-4867-bb09-dc9b85a6975e'
-
-function zaiHeaders(): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${ZAI_API_KEY}`,
-    'X-Z-AI-From': 'Z',
-    'X-Chat-Id': ZAI_CHAT_ID,
-    'X-User-Id': ZAI_USER_ID,
-    'X-Token': ZAI_TOKEN,
+let zaiInstance: any = null
+async function getZai() {
+  if (zaiInstance) return zaiInstance
+  try {
+    const ZAIModule = await import('z-ai-web-dev-sdk')
+    zaiInstance = await ZAIModule.default.create()
+    return zaiInstance
+  } catch (err) {
+    logger.error('Aether · ZAI.create() failed:', err instanceof Error ? err.message : err)
+    return null
   }
-}
-
-async function zaiVision(prompt: string, imageDataUrl: string, timeoutMs = 7000): Promise<string> {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
-    const res = await fetch(`${ZAI_BASE_URL}/chat/completions/vision`, {
-      method: 'POST', headers: zaiHeaders(), signal: controller.signal,
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: imageDataUrl } },
-        ]}],
-        thinking: { type: 'disabled' },
-      }),
-    })
-    clearTimeout(timeout)
-    if (!res.ok) return ''
-    const json = await res.json()
-    const content = json?.choices?.[0]?.message?.content
-    return typeof content === 'string' && content.trim() ? content.trim() : ''
-  } catch { return '' }
-}
-
-async function zaiText(messages: Array<{ role: string; content: string }>, timeoutMs = 5000): Promise<string | null> {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
-    const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
-      method: 'POST', headers: zaiHeaders(), signal: controller.signal,
-      body: JSON.stringify({ messages, thinking: { type: 'disabled' } }),
-    })
-    clearTimeout(timeout)
-    if (!res.ok) return null
-    const json = await res.json()
-    const content = json?.choices?.[0]?.message?.content
-    return typeof content === 'string' && content.trim() ? content.trim() : null
-  } catch { return null }
 }
 
 function stripFences(raw: string): string {
@@ -77,14 +33,11 @@ function stripFences(raw: string): string {
 }
 
 const VISION_PROMPT = `You are an infallible visual analysis core. Look at the raw pixels.
-
 Read and extract ALL text (OCR), components, labels, specs, prices with absolute accuracy.
-
 Your output MUST follow this exact layout:
 [Line 1: A clean title in under 5 words]
 [Line 2: Exactly 5 comma-separated tags like: tag1, tag2, tag3, tag4, tag5]
 [Line 3+: A complete detailed breakdown of everything visible]
-
 No JSON, no markdown. Just raw text in the exact layout above.`
 
 const ENRICHMENT_PROMPT = `You are Aether's memory curator. Return JSON only.
@@ -114,7 +67,6 @@ export async function POST(req: NextRequest) {
   const userId = authData.user.id
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
 
-  // ── Instant row insert ──
   const finalContent = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
   const initialMetadata: Record<string, unknown> = {}
   if (hasImage && typeof body.image === 'string') initialMetadata.imageData = body.image
@@ -134,12 +86,27 @@ export async function POST(req: NextRequest) {
 
   const memoryId = data.id as string
   const base64Payload = hasImage && typeof body.image === 'string' ? body.image : ''
+  const zai = await getZai()
 
   // ════════════════════════════════════════════════════════════════
   // IMAGE PATH: VLM → 3-line split → DB update
   // ════════════════════════════════════════════════════════════════
-  if (hasImage && base64Payload) {
-    const rawOutput = await zaiVision(VISION_PROMPT, base64Payload, 7000)
+  if (hasImage && base64Payload && zai) {
+    let rawOutput = ''
+    try {
+      const visionPromise = zai.chat.completions.createVision({
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: VISION_PROMPT },
+          { type: 'image_url', image_url: { url: base64Payload } },
+        ]}],
+        thinking: { type: 'disabled' },
+      })
+      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 7000))
+      const res = await Promise.race([visionPromise, timeoutPromise])
+      if (res) rawOutput = res.choices?.[0]?.message?.content?.trim() || ''
+    } catch (err) {
+      logger.warn('Aether · VLM error:', err instanceof Error ? err.message : err)
+    }
 
     if (rawOutput) {
       const lines = rawOutput.split('\n').map(l => l.trim()).filter(Boolean)
@@ -162,18 +129,14 @@ export async function POST(req: NextRequest) {
         title, body: enrichedBody, content: enrichedBody,
         summary: description.slice(0, 280),
         tags, category: 'image', processing: false,
-        metadata: {
-          title, summary: description.slice(0, 280), tags, type: 'image',
-          imageDescription: description, searchKeywords: tags,
-          imageData: base64Payload,
-        },
+        metadata: { title, summary: description.slice(0, 280), tags, type: 'image',
+          imageDescription: description, searchKeywords: tags, imageData: base64Payload },
       }).eq('id', memoryId)
 
       logger.info(`SUCCESS: Image memory ${memoryId} — title: "${title}"`)
       return NextResponse.json({ success: true, id: memoryId, enriched: true })
     }
 
-    // VLM failed — store fallback
     logger.warn('Aether · VLM failed for capture, using fallback')
     await userClient.from('memories').update({
       title: content ? content.slice(0, 60) : 'Image capture',
@@ -191,11 +154,23 @@ export async function POST(req: NextRequest) {
   const textForEnrichment = content || (hasAudio ? 'Voice note' : '')
   let aiResponseString: string | null = null
 
-  if (textForEnrichment.length >= 20) {
-    aiResponseString = await zaiText([
-      { role: 'system', content: ENRICHMENT_PROMPT },
-      { role: 'user', content: textForEnrichment.slice(0, 500) },
-    ], 5000)
+  if (zai && textForEnrichment.length >= 20) {
+    try {
+      const chatPromise = zai.chat.completions.create({
+        messages: [
+          { role: 'system', content: ENRICHMENT_PROMPT },
+          { role: 'user', content: textForEnrichment.slice(0, 500) },
+        ],
+      })
+      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 5000))
+      const res = await Promise.race([chatPromise, timeoutPromise])
+      if (res) {
+        const raw = res.choices?.[0]?.message?.content ?? ''
+        if (raw.trim()) aiResponseString = raw.trim()
+      }
+    } catch (err) {
+      logger.warn('Aether · text enrichment failed:', err instanceof Error ? err.message : err)
+    }
   }
 
   try {
