@@ -109,13 +109,13 @@ export async function POST(req: NextRequest) {
 
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
 
-  // ── Load 8 memories WITHOUT metadata (fast) ──
+  // ── POOL-SAFE: Load 5 most recent memories, lean fields only ──
   const { data: rows } = await userClient
-    .from('memories').select('id, title, body, created_at')
-    .eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(8)
+    .from('memories').select('id, title, body, tags, category, created_at')
+    .eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(5)
 
   const memories: MemoryRef[] = (rows ?? []).map((r) => ({
-    id: r.id, title: r.title || 'Untitled', body: (r.body || '').slice(0, 300)
+    id: r.id, title: r.title || 'Untitled', body: (r.body || '').slice(0, 200)
   }))
 
   // ── Check for image memory ──
@@ -190,7 +190,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    answer: "I'm having trouble connecting right now — give me a moment and try again.",
+    answer: "My connection to your sanctuary is processing slowly right now. Let's try that thought again in a moment.",
     memoryIds: []
   } satisfies AskResponse)
 }
