@@ -1,17 +1,15 @@
 'use client'
 
 /**
- * Aether · Phase 5 — Smart Folder Collection Engine
+ * Aether · Collections — 6-folder strict category system
  * ------------------------------------------------------------
- * Dynamically reads active metadata tags from the live memories array
- * and compiles them into interactive folder categories. No hardcoded
- * text — folders appear and disappear as the database evolves.
- *
- * Clicking a folder filters the memory feed below to that exact tag.
+ * Shows only the 6 allowed categories as folders.
+ * Filters by the `category` column, not individual tags.
+ * Tags remain invisible — they power search but never appear as folders.
  */
 
 import { useMemo } from 'react'
-import { Folder, FolderOpen, LayoutGrid, type LucideIcon } from 'lucide-react'
+import { Folder, FolderOpen, LayoutGrid, Briefcase, BookOpen, Lightbulb, UtensilsCrossed, Film, Sparkles, type LucideIcon } from 'lucide-react'
 import type { MemoryRow } from '@/lib/types'
 
 export type CollectionsProps = {
@@ -20,40 +18,37 @@ export type CollectionsProps = {
   onSelectFolder: (tag: string | null) => void
 }
 
-type FolderEntry = { tag: string; count: number }
+const ALLOWED_CATEGORIES = [
+  { key: 'work', label: 'Work', icon: Briefcase },
+  { key: 'books', label: 'Books', icon: BookOpen },
+  { key: 'ideas', label: 'Ideas', icon: Lightbulb },
+  { key: 'food', label: 'Food', icon: UtensilsCrossed },
+  { key: 'entertainment', label: 'Entertainment', icon: Film },
+  { key: 'others', label: 'Others', icon: Sparkles },
+] as const
 
 export function Collections({
   memories,
   activeFolder,
   onSelectFolder,
 }: CollectionsProps) {
-  // Build unique tag folders dynamically with live counts — no hardcoding.
-  // Tags are dug out of the `metadata` JSONB object (the canonical AI store),
-  // with a safe fallback to the top-level `tags` column for legacy/seeded rows.
-  const folders = useMemo<FolderEntry[]>(() => {
+  // Count memories per category (only the 6 allowed buckets)
+  const folders = useMemo(() => {
     const counts = new Map<string, number>()
     for (const memory of memories) {
-      // Safely dig into the jsonb metadata object.
-      const metaTags = memory.metadata?.tags
-      const tags = Array.isArray(metaTags) && metaTags.length
-        ? metaTags
-        : Array.isArray(memory.tags)
-          ? memory.tags
-          : []
-      for (const t of tags) {
-        if (!t) continue
-        counts.set(t, (counts.get(t) ?? 0) + 1)
-      }
+      const cat = (memory.category || 'others').toLowerCase().trim()
+      // Normalize: if category isn't one of the 6, count as 'others'
+      const allowed = ALLOWED_CATEGORIES.find(c => c.key === cat)
+      const normalized = allowed ? cat : 'others'
+      counts.set(normalized, (counts.get(normalized) ?? 0) + 1)
     }
-    return Array.from(counts.entries())
-      .map(([tag, count]) => ({ tag, count }))
-      .sort((a, b) => b.count - a.count)
+    return ALLOWED_CATEGORIES
+      .map(c => ({ ...c, count: counts.get(c.key) ?? 0 }))
+      .filter(c => c.count > 0) // Only show folders that have memories
   }, [memories])
 
   const totalCount = memories.length
 
-  // Hide the panel entirely while loading or when there are zero memories —
-  // the empty state already speaks for itself.
   if (totalCount === 0) return null
 
   return (
@@ -76,14 +71,14 @@ export function Collections({
           onClick={() => onSelectFolder(null)}
         />
 
-        {folders.map(({ tag, count }) => (
+        {folders.map(({ key, label, icon, count }) => (
           <FolderPill
-            key={tag}
-            icon={activeFolder === tag ? FolderOpen : Folder}
-            label={tag}
+            key={key}
+            icon={icon}
+            label={label}
             count={count}
-            active={activeFolder === tag}
-            onClick={() => onSelectFolder(activeFolder === tag ? null : tag)}
+            active={activeFolder === key}
+            onClick={() => onSelectFolder(activeFolder === key ? null : key)}
           />
         ))}
       </div>
@@ -122,7 +117,7 @@ function FolderPill({
             : 'text-zinc-400 dark:text-zinc-500 group-hover:text-purple-500'
         }`}
       />
-      <span className="capitalize">{label}</span>
+      <span>{label}</span>
       <span
         className={`text-xs font-semibold tabular-nums transition-colors duration-300 ${
           active ? 'text-purple-400' : 'text-zinc-400 dark:text-zinc-500'

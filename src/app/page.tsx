@@ -1037,16 +1037,17 @@ export default function Home() {
     } catch { toast.error('Could not delete that memory.') }
   }, [])
 
-  // Phase 5 — filter memories by the active folder tag (derived live from DB).
-  // Reads tags from the metadata JSONB first, falling back to the top-level column.
+  // Filter memories by the active folder category (not tags).
+  // Tags are invisible — they power search but folders use the category column.
   const visibleMemories = useMemo(
     () =>
       activeFolder === null
         ? memories
         : memories.filter((m) => {
-            const tags =
-              m.metadata?.tags?.length ? m.metadata.tags : (m.tags ?? [])
-            return tags.includes(activeFolder)
+            const cat = (m.category || 'others').toLowerCase().trim()
+            const allowed = ['work', 'books', 'ideas', 'food', 'entertainment', 'others']
+            const normalized = allowed.includes(cat) ? cat : 'others'
+            return normalized === activeFolder
           }),
     [memories, activeFolder]
   )
