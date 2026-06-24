@@ -104,29 +104,18 @@ export async function POST(req: NextRequest) {
   let distillation = 'Your day held a few quiet threads worth keeping.'
   let insights = ['The act of capturing is itself a form of attention.', 'Notice what recurs.', 'A thought kept is a thought honoured.']
 
-  // Use getZai() from vlm.ts — uses `new ZAI(config)` with hardcoded credentials
+  // Use Groq text model (llama-3.3-70b-versatile)
   {
     try {
-      const { getZai } = await import('@/lib/vlm')
-      const zai = await getZai()
+      const { aiText, stripCodeFences } = await import('@/lib/ai')
+      const raw = await aiText([
+        { role: 'system', content: RECAP_PROMPT },
+        { role: 'user', content: memoryText },
+      ], 7000)
 
-      const chatPromise = zai!.chat.completions.create({
-        messages: [
-          { role: 'system', content: RECAP_PROMPT },
-          { role: 'user', content: memoryText },
-        ],
-      })
-
-      // 7s timeout
-      const timeoutPromise = new Promise<null>((resolve) =>
-        setTimeout(() => resolve(null), 7000)
-      )
-
-      const res = await Promise.race([chatPromise, timeoutPromise])
-      if (res) {
-        const raw = res.choices?.[0]?.message?.content ?? ''
+      if (raw) {
         try {
-          const p = JSON.parse(raw)
+          const p = JSON.parse(stripCodeFences(raw))
           if (typeof p.distillation === 'string') distillation = p.distillation.slice(0, 500)
           if (Array.isArray(p.insights)) {
             insights = p.insights

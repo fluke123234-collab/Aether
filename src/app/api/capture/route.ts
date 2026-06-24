@@ -1,22 +1,16 @@
 /**
- * Aether · /api/capture — Clean Synchronous Multimodal Capture
+ * Aether · /api/capture — Groq-powered multimodal capture
  * ------------------------------------------------------------
- * Vercel Hobby 10s optimized. No sharp, no after(), no parallel calls.
- *
- * Flow:
- *  1. Insert row instantly (title: "Processing spatial context...")
- *  2. VLM analyzes the image directly (8s timeout, no compression)
- *  3. Split VLM output: Line 1 → title, Line 2 → tags, Line 3+ → body
- *  4. Update row with enriched data
- *
- * Total: ~5-8s — fits Vercel's 10s limit.
+ * 1. Instant row insert
+ * 2. Groq Vision (llama-3.2-11b-vision-preview, 8s timeout)
+ * 3. 3-line split: title, tags, body
+ * 4. Single DB update
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { analyzeMemoryText } from '@/lib/gemini'
-import { getZai } from '@/lib/vlm'
+import { aiVision, aiText, stripCodeFences } from '@/lib/ai'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -36,6 +30,12 @@ Your output response MUST follow this exact string split layout profile:
 [Line 3+: A complete, deeply detailed narrative breakdown of everything printed or visible in the image]
 
 Do not include any preamble, JSON, or markdown formatting. Just the raw text in the exact layout above.`
+
+const ENRICHMENT_PROMPT = `You are Aether's memory curator. Given a raw captured thought, return metadata as valid raw JSON only. No markdown code blocks.
+
+Be extremely brief. Title max 5 words, Title Case. Summary 1 sentence max 15 words. Generate 5 highly contextual tags (lowercase).
+
+Return exactly: {"title":"...","summary":"...","tags":["tag1","tag2","tag3","tag4","tag5"],"body":"corrected body text"}`
 
 export async function POST(req: NextRequest) {
   let body: { content?: unknown; image?: unknown; audio?: unknown }
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
   const userId = authData.user.id
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
 
-  // ── Step 1: INSTANT ROW CREATION ──
+  // ── Step 1: INSTANT ROW INSERT ──
   const finalContent = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
   const initialMetadata: Record<string, unknown> = {}
   if (hasImage && typeof body.image === 'string') initialMetadata.imageData = body.image
@@ -83,78 +83,48 @@ export async function POST(req: NextRequest) {
   const memoryId = data.id as string
 
   // ════════════════════════════════════════════════════════════════
-  // IMAGE PATH: Direct VLM call → split output → update row
+  // IMAGE PATH: Groq Vision → 3-line split → DB update
   // ════════════════════════════════════════════════════════════════
   if (hasImage && typeof body.image === 'string') {
-    try {
-      const zai = await getZai()
+    const rawOutput = await aiVision(VISION_PROMPT, body.image, 8000)
 
-      // ── Step 2: DIRECT VISION CALL (no compression, 8s timeout) ──
-      const visionPromise = zai.chat.completions.createVision({
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'text', text: VISION_PROMPT },
-            { type: 'image_url', image_url: { url: body.image } },
-          ],
-        }],
-        thinking: { type: 'disabled' },
-      })
+    if (rawOutput) {
+      // ── Split the VLM output into 3 parts ──
+      const lines = rawOutput.split('\n').map(l => l.trim()).filter(Boolean)
 
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
-      const res = await Promise.race([visionPromise, timeoutPromise])
+      let title = 'Image capture'
+      let tags: string[] = ['image', 'capture', 'visual']
+      let description = rawOutput
 
-      if (res) {
-        const rawOutput = res.choices?.[0]?.message?.content?.trim() || ''
-
-        if (rawOutput) {
-          // ── Step 3: SPLIT THE VLM OUTPUT ──
-          const lines = rawOutput.split('\n').map((l: string) => l.trim()).filter(Boolean)
-
-          let title = 'Image capture'
-          let tags: string[] = ['image', 'capture', 'visual']
-          let description = rawOutput
-
-          if (lines.length >= 3) {
-            // Line 1: title
-            title = lines[0].slice(0, 80)
-            // Line 2: tags (comma-separated)
-            const tagLine = lines[1].toLowerCase()
-            const parsedTags = tagLine.split(',').map((t: string) => t.trim()).filter(Boolean).slice(0, 5)
-            if (parsedTags.length >= 2) tags = ['image', ...parsedTags.filter((t: string) => t !== 'image')].slice(0, 5)
-            // Line 3+: full description
-            description = lines.slice(2).join('\n')
-          } else if (lines.length === 1) {
-            title = lines[0].slice(0, 80)
-          }
-
-          // ── Step 4: SINGLE-PASS DATABASE INJECTION ──
-          const enrichedBody = `${content || 'Image capture'}\n\n[Image content: ${description}]`.slice(0, 1000)
-
-          await userClient.from('memories').update({
-            title, body: enrichedBody, content: enrichedBody,
-            summary: description.slice(0, 280),
-            tags, category: 'image', processing: false,
-            metadata: {
-              title, summary: description.slice(0, 280), tags, type: 'image',
-              imageDescription: description,
-              searchKeywords: tags,
-              imageData: body.image,
-            },
-          }).eq('id', memoryId)
-
-          logger.info(`SUCCESS: Image memory ${memoryId} enriched — title: "${title}"`)
-          return NextResponse.json({ success: true, id: memoryId, enriched: true })
-        }
+      if (lines.length >= 3) {
+        title = lines[0].slice(0, 80)
+        const tagLine = lines[1].toLowerCase()
+        const parsedTags = tagLine.split(',').map(t => t.trim()).filter(Boolean).slice(0, 5)
+        if (parsedTags.length >= 2) tags = ['image', ...parsedTags.filter(t => t !== 'image')].slice(0, 5)
+        description = lines.slice(2).join('\n')
+      } else if (lines.length === 1) {
+        title = lines[0].slice(0, 80)
       }
 
-      // VLM timed out or returned empty — use fallback
-      logger.warn('Aether · VLM timed out or empty for capture, using fallback')
-    } catch (err) {
-      logger.error('Aether · VLM error in capture:', err instanceof Error ? err.message : err)
+      const enrichedBody = `${content || 'Image capture'}\n\n[Image content: ${description}]`.slice(0, 1000)
+
+      await userClient.from('memories').update({
+        title, body: enrichedBody, content: enrichedBody,
+        summary: description.slice(0, 280),
+        tags, category: 'image', processing: false,
+        metadata: {
+          title, summary: description.slice(0, 280), tags, type: 'image',
+          imageDescription: description, searchKeywords: tags,
+          imageData: body.image,
+        },
+      }).eq('id', memoryId)
+
+      logger.info(`SUCCESS: Image memory ${memoryId} — title: "${title}"`)
+      return NextResponse.json({ success: true, id: memoryId, enriched: true })
     }
 
-    // ── Fallback: VLM failed — store what we have ──
+    // VLM failed — store fallback
+    logger.warn('Aether · Groq vision failed for capture, using fallback')
     await userClient.from('memories').update({
       title: content ? content.slice(0, 60) : 'Image capture',
       body: `${content || 'Image capture'}\n\n[Image content: A captured image. Ask Aether to analyze it.]`,
@@ -162,30 +132,40 @@ export async function POST(req: NextRequest) {
       category: 'image', processing: false,
       metadata: { imageDescription: 'A captured image. Ask Aether to analyze it.' },
     }).eq('id', memoryId)
-
     return NextResponse.json({ success: true, id: memoryId })
   }
 
   // ════════════════════════════════════════════════════════════════
-  // TEXT/AUDIO PATH: Text enrichment (3s timeout)
+  // TEXT/AUDIO PATH: Groq Text enrichment (6s timeout)
   // ════════════════════════════════════════════════════════════════
   const textForEnrichment = content || (hasAudio ? 'Voice note' : '')
-  const aiResponseString = await Promise.race([
-    analyzeMemoryText(textForEnrichment),
-    new Promise<string>((resolve) => setTimeout(() => resolve(JSON.stringify({ title: textForEnrichment.slice(0, 60), summary: '', tags: ['capture'] })), 3000))
-  ])
+  let aiResponseString: string | null = null
+
+  if (textForEnrichment.length >= 20) {
+    aiResponseString = await aiText([
+      { role: 'system', content: ENRICHMENT_PROMPT },
+      { role: 'user', content: textForEnrichment.slice(0, 500) },
+    ], 6000)
+  }
 
   try {
-    const aiData = JSON.parse(aiResponseString) as { title?: unknown; summary?: unknown; tags?: unknown; body?: unknown }
+    let aiData: { title?: unknown; summary?: unknown; tags?: unknown; body?: unknown }
+
+    if (aiResponseString) {
+      const cleaned = stripCodeFences(aiResponseString)
+      aiData = JSON.parse(cleaned)
+    } else {
+      aiData = { title: textForEnrichment.slice(0, 60), summary: '', tags: ['capture'] }
+    }
+
     const title = typeof aiData.title === 'string' && aiData.title.trim() ? aiData.title.trim().slice(0, 80) : 'Untitled Thought'
     const summary = typeof aiData.summary === 'string' ? aiData.summary.trim().slice(0, 280) : ''
-    let tags: string[] = Array.isArray(aiData.tags) ? aiData.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim()).slice(0, 5) : []
+    let tags: string[] = Array.isArray(aiData.tags) ? aiData.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map(t => t.trim()).slice(0, 5) : []
     if (tags.length === 0) tags = hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note']
     const correctedBody = typeof aiData.body === 'string' && aiData.body.trim() ? aiData.body.trim().slice(0, 500) : finalContent
     const memoryType = classifyMemoryType(correctedBody)
-    const searchKeywords = extractKeywords(correctedBody, tags)
 
-    const metadataObj: Record<string, unknown> = { title, summary, tags, type: memoryType, searchKeywords }
+    const metadataObj: Record<string, unknown> = { title, summary, tags, type: memoryType, searchKeywords: tags }
     if (hasAudio && typeof body.audio === 'string') metadataObj.audioData = body.audio
 
     await userClient.from('memories').update({
@@ -198,8 +178,7 @@ export async function POST(req: NextRequest) {
     logger.error('Enrichment parse failed:', parseError instanceof Error ? parseError.message : parseError)
     const fallbackTags = hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note']
     await userClient.from('memories').update({
-      processing: false, tags: fallbackTags, title: finalContent.slice(0, 60) || 'Untitled Thought',
-      category: 'note',
+      processing: false, tags: fallbackTags, title: finalContent.slice(0, 60) || 'Untitled Thought', category: 'note',
     }).eq('id', memoryId)
     return NextResponse.json({ success: true, id: memoryId })
   }
@@ -214,16 +193,4 @@ function classifyMemoryType(text: string): string {
   if (/\b(family|friend|partner|wife|husband|girlfriend|boyfriend|mom|dad|mother|father|son|daughter|kid|relationship|love|date)\b/.test(t)) return 'relationships'
   if (/\b(todo|to-do|task|need to|must|should|have to|don'?t forget|remember to|finish|complete|ship|fix|call|send|buy|schedule|book)\b/.test(t)) return 'task'
   return 'personal'
-}
-
-function extractKeywords(content: string, existingTags: string[]): string[] {
-  const text = content.toLowerCase()
-  const keywords = new Set<string>(existingTags.map((t) => t.toLowerCase()))
-  const stopwords = new Set(['the', 'this', 'that', 'with', 'have', 'will', 'been', 'from', 'they', 'were', 'your', 'what', 'when', 'which', 'their', 'would', 'about', 'there', 'could', 'other', 'more', 'some', 'than', 'very', 'into', 'only', 'also', 'just', 'like', 'make', 'well', 'much', 'such', 'those', 'these', 'know', 'think', 'want', 'need', 'image', 'content', 'capture', 'note', 'voice'])
-  const words = text.match(/\b[a-z]{4,}\b/g) || []
-  const wordCounts = new Map<string, number>()
-  for (const w of words) { if (stopwords.has(w)) continue; wordCounts.set(w, (wordCounts.get(w) || 0) + 1) }
-  const sorted = Array.from(wordCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([w]) => w)
-  for (const w of sorted) keywords.add(w)
-  return Array.from(keywords).slice(0, 15)
 }

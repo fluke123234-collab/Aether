@@ -1,16 +1,16 @@
 /**
- * Aether · /api/ask — No-Lag Multimodal Chat (Vercel 10s optimized)
+ * Aether · /api/ask — Groq-powered no-lag chat (Vercel 10s optimized)
  * ------------------------------------------------------------
- * 1. Load 20 memories WITHOUT metadata (fast, ~200ms)
- * 2. If no image attached, micro-targeted query for just imageData (1 row)
- * 3. VLM call (7s timeout) — if fails, fall back to cached body description
- * 4. Text-only: ZAI SDK (8s timeout)
+ * 1. Load 20 memories WITHOUT metadata (fast ~200ms)
+ * 2. Micro-targeted query for image memory's imageData
+ * 3. Groq Vision (7s timeout) — if fails, Groq Text fallback (7s)
+ * 4. Text-only: Groq Text (7s)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { getZai } from '@/lib/vlm'
+import { aiVision, aiText, stripCodeFences } from '@/lib/ai'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -25,7 +25,7 @@ type AskResponse = { success: boolean; answer: string; memoryIds: string[]; erro
 
 const SYSTEM_PROMPT = `You are the conscious intellect of Aether—a refined, minimalist digital sanctuary designed as an antidote to information overload. Speak with clean, articulate authority.
 
-Avoid empty pleasantries, conversational fillers, or unnecessary paragraphs. When analyzing images, treat technical data like physical components, code strings, and labels with absolute micro-precision, then present your findings clearly and elegantly.
+Avoid conversational fillers, pleasantries, or wordy greetings. When evaluating images or documents, read technical layouts and fine-print text with 100% micro-precision, outputting results with maximum analytical clarity.
 
 RULES:
 1. Universal conversation — handle any topic with clarity and wit.
@@ -40,13 +40,10 @@ OUTPUT: valid raw JSON only, no code fences:
 
 const VISION_SYSTEM_PROMPT = `You are the conscious intellect of Aether—a refined, minimalist digital sanctuary. You are looking directly at the raw pixel data provided.
 
-Treat technical data like physical components, code strings, and labels with absolute micro-precision. Read text strings, hardware labels, specs, prices EXACTLY as printed. If illegible, say "illegible". Present your findings clearly and elegantly.
+Read technical layouts and fine-print text with 100% micro-precision. Read text strings, hardware labels, specs, prices EXACTLY as printed. If illegible, say "illegible". Present findings clearly and elegantly.
 
 OUTPUT: valid raw JSON only, no code fences:
 {"answer":"...","memoryIds":["id1","id2"]}`
-
-// getZai() is imported from @/lib/vlm (uses `new ZAI(config)` with hardcoded
-// credentials — works on Vercel without .z-ai-config file)
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
@@ -69,7 +66,7 @@ export async function POST(req: NextRequest) {
 
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
 
-  // ── FAST: Load 20 memories WITHOUT metadata (no base64) ──
+  // ── FAST: Load 20 memories WITHOUT metadata ──
   const { data: rows, error: memError } = await userClient
     .from('memories').select('id, title, body, tags, created_at')
     .eq('user_id', authData.user.id).order('created_at', { ascending: false }).limit(20)
@@ -86,83 +83,67 @@ export async function POST(req: NextRequest) {
   let visionImage = image || memoryImage
   let imageMemoryId: string | undefined
 
-  // ── Micro-targeted query: load ONLY the most recent image memory's imageData ──
   if (!visionImage) {
     const { data: imageRow } = await userClient
-      .from('memories')
-      .select('id, metadata')
-      .eq('user_id', authData.user.id)
-      .eq('category', 'image')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+      .from('memories').select('id, metadata')
+      .eq('user_id', authData.user.id).eq('category', 'image')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
 
     if (imageRow) {
       const meta = imageRow.metadata as { imageData?: string } | null
       if (meta?.imageData && meta.imageData.startsWith('data:image/')) {
         visionImage = meta.imageData
         imageMemoryId = imageRow.id
-        // Ensure this memory is in the memories list for citation
         if (!memories.find((m) => m.id === imageRow.id)) {
           memories.unshift({ id: imageRow.id, title: 'Image memory', body: '', tags: null, created_at: new Date().toISOString() })
         }
       }
     }
   } else {
-    // User attached an image — find which memory it belongs to
     const imageMemory = memories.find((m) => m.body?.includes('[Image content:'))
     imageMemoryId = imageMemory?.id
   }
 
   if (visionImage) {
-    try {
-      const zai = await getZai()
+    const combinedPrompt = `${VISION_SYSTEM_PROMPT}\n\nUSER QUESTION: ${question || 'Analyze this image.'}\n\nRespond with valid raw JSON only:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}`
 
-      const combinedPrompt = `${VISION_SYSTEM_PROMPT}\n\nUSER QUESTION: ${question || 'Analyze this image.'}\n\nRespond with valid raw JSON only:\n{"answer":"...","memoryIds":["${imageMemoryId || ''}"]}`
+    const raw = await aiVision(combinedPrompt, visionImage, 7000)
 
-      const visionPromise = zai.chat.completions.createVision({
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'text', text: combinedPrompt },
-            { type: 'image_url', image_url: { url: visionImage } },
-          ],
-        }],
-        thinking: { type: 'disabled' },
-      })
-
-      // ── 7s timeout — if VLM fails, return cached description IMMEDIATELY ──
-      // (do NOT fall through to text-only — that would exceed Vercel's 10s limit)
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 7000))
-      const res = await Promise.race([visionPromise, timeoutPromise])
-
-      if (res) {
-        const raw = res.choices?.[0]?.message?.content ?? ''
-        if (raw.trim()) {
-          const parsed = parseAnswer(raw, memories)
-          if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) {
-            parsed.memoryIds.unshift(imageMemoryId)
-          }
-          return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
-        }
+    if (raw) {
+      const parsed = parseAnswer(raw, memories)
+      if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) {
+        parsed.memoryIds.unshift(imageMemoryId)
       }
-
-      // VLM failed — fall back to cached body description
-      logger.warn('Aether · VLM failed in /api/ask, falling back to cached description')
-    } catch (err) {
-      logger.warn('Aether · VLM error:', err instanceof Error ? err.message : err)
+      return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
     }
 
-    // ── Fallback: use the cached description from the body text ──
+    // VLM failed — try Groq text with cached description (7s)
+    logger.warn('Aether · Groq vision failed, trying text fallback with cached description')
     const imageMemory = memories.find((m) => m.id === imageMemoryId)
     const cachedDesc = imageMemory?.body?.match(/\[Image content: ([\s\S]+)\]/)?.[1] || ''
     const isFallbackDesc = cachedDesc.includes('A captured image. Ask Aether to analyze')
+
+    if (cachedDesc && !isFallbackDesc) {
+      const textMessages = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.text })),
+        { role: 'user', content: `Based on this cached image description, answer the user's question.\n\nCached description: ${cachedDesc}\n\nQuestion: ${question}` }
+      ]
+      const textRaw = await aiText(textMessages, 7000)
+      if (textRaw) {
+        const parsed = parseAnswer(textRaw, memories)
+        if (imageMemoryId && !parsed.memoryIds.includes(imageMemoryId)) {
+          parsed.memoryIds.unshift(imageMemoryId)
+        }
+        return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
+      }
+    }
 
     return NextResponse.json({
       success: true,
       answer: cachedDesc && !isFallbackDesc
         ? `Based on what I captured earlier: ${cachedDesc.slice(0, 500)}`
-        : "I can see your image memory but the live pixel analysis timed out. The image was captured but not yet analyzed — try deleting and re-capturing it, then ask again.",
+        : "I can see your image memory but couldn't analyze it right now. Try deleting and re-capturing it.",
       memoryIds: imageMemoryId ? [imageMemoryId] : []
     } satisfies AskResponse)
   }
@@ -176,28 +157,16 @@ export async function POST(req: NextRequest) {
   }
 
   const fullPrompt = contextBlock + question
+  const textMessages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.text })),
+    { role: 'user', content: fullPrompt }
+  ]
 
-  // Try ZAI SDK (8s timeout)
-  try {
-    const zai = await getZai()
-    const messages = [
-      { role: 'system', content: SYSTEM_PROMPT },
-      ...history.map((h) => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.text })),
-      { role: 'user', content: fullPrompt }
-    ]
-    const chatPromise = zai.chat.completions.create({ messages })
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 7000))
-    const res = await Promise.race([chatPromise, timeoutPromise])
-
-    if (res) {
-      const raw = res.choices?.[0]?.message?.content ?? ''
-      if (raw.trim()) {
-        const parsed = parseAnswer(raw, memories)
-        return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
-      }
-    }
-  } catch (err) {
-    logger.warn('Aether · text LLM error:', err instanceof Error ? err.message : err)
+  const raw = await aiText(textMessages, 7000)
+  if (raw) {
+    const parsed = parseAnswer(raw, memories)
+    return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
   }
 
   return NextResponse.json({
@@ -208,12 +177,7 @@ export async function POST(req: NextRequest) {
 }
 
 function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memoryIds: string[] } {
-  // Strip markdown code fences if present (```json ... ```)
-  let cleaned = raw.trim()
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
-  }
-
+  const cleaned = stripCodeFences(raw)
   try {
     const p = JSON.parse(cleaned) as { answer?: unknown; memoryIds?: unknown }
     if (typeof p.answer === 'string' && p.answer.trim()) {
@@ -226,7 +190,6 @@ function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memo
       return { answer: p.answer.trim().slice(0, 2000), memoryIds: ids }
     }
   } catch {}
-  // Try to extract JSON from the response
   const match = cleaned.match(/\{[\s\S]*\}/)
   if (match) {
     try {
@@ -242,6 +205,5 @@ function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memo
       }
     } catch {}
   }
-  // Fallback: use raw text as the answer
   return { answer: cleaned.trim().slice(0, 2000), memoryIds: [] }
 }

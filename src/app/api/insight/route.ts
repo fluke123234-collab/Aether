@@ -31,25 +31,17 @@ export async function POST(req: NextRequest) {
   let insight = 'Sometimes the act of keeping a thought is the insight itself.'
   let angle = 'A gentler look'
 
-  // Use getZai() from vlm.ts — uses `new ZAI(config)` with hardcoded credentials
+  // Use Groq text model (llama-3.3-70b-versatile)
   try {
-    const { getZai } = await import('@/lib/vlm')
-    const zai = await getZai()
+    const { aiText, stripCodeFences } = await import('@/lib/ai')
+    const raw = await aiText([
+      { role: 'system', content: INSIGHT_PROMPT },
+      { role: 'user', content: memoryText },
+    ], 7000)
 
-    const chatPromise = zai!.chat.completions.create({
-      messages: [
-        { role: 'system', content: INSIGHT_PROMPT },
-        { role: 'user', content: memoryText },
-      ],
-    })
-
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 7000))
-    const res = await Promise.race([chatPromise, timeoutPromise])
-
-    if (res) {
-      const raw = res.choices?.[0]?.message?.content ?? ''
+    if (raw) {
       try {
-        const p = JSON.parse(raw)
+        const p = JSON.parse(stripCodeFences(raw))
         if (typeof p.angle === 'string') angle = p.angle.slice(0, 60)
         if (typeof p.insight === 'string') insight = p.insight.slice(0, 800)
       } catch {
