@@ -75,12 +75,20 @@ export async function POST(req: NextRequest) {
   }))
 
   // ── Check for image memory ──
+  // Only auto-attach image pixels if the user's question seems image-related.
+  // This prevents the VLM from hijacking every question (e.g., "what is the gut
+  // brain connection" should use text-only path with link summaries, not send
+  // the PC build image to the VLM).
   let visionImage = userImage || memImage
   let imageMemoryId: string | undefined
 
-  if (!visionImage) {
-    // Query for memories that have imageData in metadata (not by category,
-    // since images are now categorized into the 6-bucket system)
+  // Only search for image memories if:
+  // 1. User explicitly attached an image (userImage/memImage), OR
+  // 2. User's question contains image-related keywords
+  const imageKeywords = /\b(image|picture|photo|screenshot|pic|see|what.?s in|what.?s on|read the|look at|scan|spec|price|cost|how much|component|part|build|chart|diagram|label)\b/i
+  const seemsImageRelated = imageKeywords.test(question)
+
+  if (!visionImage && seemsImageRelated) {
     const { data: imageRow } = await userClient
       .from('memories').select('id, metadata')
       .eq('user_id', authData.user.id)
@@ -88,7 +96,6 @@ export async function POST(req: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(10)
 
-    // Find the first memory with actual imageData
     const found = (imageRow ?? []).find((m) => {
       const meta = m.metadata as { imageData?: string } | null
       return meta?.imageData?.startsWith('data:image/')
@@ -104,7 +111,7 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-  } else {
+  } else if (visionImage) {
     imageMemoryId = memories.find(m => m.body?.includes('[Image content:'))?.id
   }
 
