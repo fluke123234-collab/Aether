@@ -320,7 +320,7 @@ function FloatingCapsule({
   }
 
   return (
-    <div className="fixed bottom-5 left-1/2 z-40 w-[calc(100%-2.5rem)] max-w-2xl -translate-x-1/2 animate-rise">
+    <div className="fixed bottom-3 sm:bottom-5 left-1/2 z-40 w-[calc(100%-1.5rem)] sm:w-[calc(100%-2.5rem)] max-w-2xl -translate-x-1/2 animate-rise">
       {pendingImage && (
         <div className="mb-2 flex items-center gap-2 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/60 bg-white dark:bg-[#18181B] p-2 shadow-[0_8px_30px_rgb(0,0,0,0.015)] dark:shadow-none">
           <img src={pendingImage} alt="Pending capture" className="h-12 w-12 rounded-lg object-cover" />
@@ -330,7 +330,7 @@ function FloatingCapsule({
           </button>
         </div>
       )}
-      <div className="aether-glass-capsule group flex items-center gap-1 rounded-full border border-zinc-200/50 dark:border-zinc-800/80 bg-white p-1.5 pl-6 shadow-[0_8px_30px_rgb(0,0,0,0.015)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-200 dark:focus-within:border-purple-500/40">
+      <div className="aether-glass-capsule group flex items-center gap-0.5 sm:gap-1 rounded-full border border-zinc-200/50 dark:border-zinc-800/80 bg-white p-1.5 pl-4 sm:pl-6 shadow-[0_8px_30px_rgb(0,0,0,0.015)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-200 dark:focus-within:border-purple-500/40">
         {/* When recording, morph the input into a live audio deck */}
         {listening || recorder.listening ? (
           <div className="flex h-12 flex-1 items-center gap-3 px-1">
@@ -346,10 +346,10 @@ function FloatingCapsule({
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
             }}
             placeholder="Capture a thought, or ask Aether…"
-            className="h-12 flex-1 bg-transparent text-[15px] text-zinc-800 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-0"
+            className="h-12 flex-1 min-w-0 bg-transparent text-sm sm:text-[15px] text-zinc-800 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-0"
           />
         )}
-        <div className="flex items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           <CapsuleAction icon={ImageIcon} label="Attach image" onClick={handleImagePick} active={!!pendingImage} />
           <CapsuleAction icon={Link2} label="Attach link" onClick={() => ensureAuthenticated(() => toast('Link attach is coming soon.'))} />
           <CapsuleAction icon={Mic} label={listening || recorder.listening ? 'Stop recording' : 'Voice capture'} onClick={handleVoice} active={listening || recorder.listening} />
@@ -357,9 +357,9 @@ function FloatingCapsule({
             aria-label="Capture thought"
             onClick={handleSubmit}
             disabled={!value.trim() && !pendingImage && !recorderReady && !audioData}
-            className="ml-1 flex h-11 w-11 items-center justify-center rounded-full bg-zinc-900 text-white transition-all duration-300 hover:bg-purple-600 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:scale-100"
+            className="ml-0.5 sm:ml-1 flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white transition-all duration-300 hover:bg-purple-600 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:bg-zinc-900 disabled:hover:scale-100"
           >
-            <ArrowUp className="h-[18px] w-[18px]" />
+            <ArrowUp className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
           </button>
         </div>
       </div>
@@ -382,11 +382,11 @@ function CapsuleAction({
     <button
       aria-label={label}
       onClick={onClick}
-      className={`flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 ease-out hover:scale-105 active:scale-95 ${
+      className={`flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full transition-all duration-300 ease-out hover:scale-105 active:scale-95 ${
         active ? 'bg-purple-100 text-purple-600 animate-pulse' : 'text-zinc-400 dark:text-zinc-500 hover:bg-purple-50/80 hover:text-purple-600'
       }`}
     >
-      <Icon className="h-[18px] w-[18px]" />
+      <Icon className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
     </button>
   )
 }
