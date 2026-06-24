@@ -1,21 +1,21 @@
 /**
- * Aether · Capture endpoint — Synchronous, fits Vercel's 10s Hobby limit
+ * Aether · /api/capture — Clean Synchronous Multimodal Capture
  * ------------------------------------------------------------
- * Timeline (target <9s total):
- *  1. Verify session + insert row: ~500ms
- *  2. VLM image analysis: 5s timeout
- *  3. Text enrichment: 3s timeout
- *  4. Update row: ~200ms
+ * Vercel Hobby 10s optimized. No sharp, no after(), no parallel calls.
  *
- * after() is NOT used — it doesn't give extra time on Vercel Hobby.
- * Re-enrichment is SKIPPED — saves 3-8s, not worth the timeout risk.
+ * Flow:
+ *  1. Insert row instantly (title: "Processing spatial context...")
+ *  2. VLM analyzes the image directly (8s timeout, no compression)
+ *  3. Split VLM output: Line 1 → title, Line 2 → tags, Line 3+ → body
+ *  4. Update row with enriched data
+ *
+ * Total: ~5-8s — fits Vercel's 10s limit.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { analyzeMemoryText } from '@/lib/gemini'
-import { analyzeImageWithCLI } from '@/lib/vlm'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -24,6 +24,26 @@ export const maxDuration = 60
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+
+// ── The unified ZAI instance (created once, reused) ──
+let zaiInstance: Awaited<ReturnType<typeof import('z-ai-web-dev-sdk').default.create>> | null = null
+async function getZai() {
+  if (zaiInstance) return zaiInstance
+  const ZAIModule = await import('z-ai-web-dev-sdk')
+  zaiInstance = await ZAIModule.default.create()
+  return zaiInstance
+}
+
+const VISION_PROMPT = `You are an infallible, micro-precision visual analysis core operating inside a quiet digital sanctuary. Look directly at the raw pixels provided.
+
+Read and extract characters (OCR), interface components, hardware specifications, prices, labels, or structural layouts with absolute accuracy.
+
+Your output response MUST follow this exact string split layout profile:
+[Line 1: A clean, contextual title describing the asset in under 5 words]
+[Line 2: Exactly 5 dense search tags formatted like 'tag1, tag2, tag3, tag4, tag5']
+[Line 3+: A complete, deeply detailed narrative breakdown of everything printed or visible in the image]
+
+Do not include any preamble, JSON, or markdown formatting. Just the raw text in the exact layout above.`
 
 export async function POST(req: NextRequest) {
   let body: { content?: unknown; image?: unknown; audio?: unknown }
@@ -49,16 +69,18 @@ export async function POST(req: NextRequest) {
   const userId = authData.user.id
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
 
-  // ── Step 1: INSTANT insert ──
+  // ── Step 1: INSTANT ROW CREATION ──
   const finalContent = content || (hasImage ? 'Image capture' : (hasAudio ? 'Voice note' : ''))
   const initialMetadata: Record<string, unknown> = {}
   if (hasImage && typeof body.image === 'string') initialMetadata.imageData = body.image
   if (hasAudio && typeof body.audio === 'string') initialMetadata.audioData = body.audio
 
   const { data, error } = await userClient.from('memories').insert([{
-    title: 'Capturing thought…', body: finalContent, content: finalContent, summary: '',
-    category: hasImage ? 'image' : 'note', tags: ['capture'], processing: true,
-    user_id: userId, metadata: Object.keys(initialMetadata).length > 0 ? initialMetadata : null,
+    title: hasImage ? 'Processing spatial context...' : 'Capturing thought…',
+    body: finalContent, content: finalContent, summary: '',
+    category: hasImage ? 'image' : 'note', tags: ['capture'],
+    processing: true, user_id: userId,
+    metadata: Object.keys(initialMetadata).length > 0 ? initialMetadata : null,
   }]).select().single()
 
   if (error || !data) {
@@ -68,85 +90,110 @@ export async function POST(req: NextRequest) {
 
   const memoryId = data.id as string
 
-  // ── Step 2: SYNCHRONOUS enrichment (fits Vercel 10s limit) ──
-  // For images: VLM ONLY (8s timeout) — skip text enrichment entirely.
-  // The VLM description is used for title, summary, and body.
-  // For text: text enrichment only (3s timeout).
-  const imageBase64 = hasImage && typeof body.image === 'string' ? body.image : ''
+  // ════════════════════════════════════════════════════════════════
+  // IMAGE PATH: Direct VLM call → split output → update row
+  // ════════════════════════════════════════════════════════════════
+  if (hasImage && typeof body.image === 'string') {
+    try {
+      const zai = await getZai()
 
-  let imageDescription = ''
-  let aiResponseString = ''
-
-  if (hasImage && imageBase64) {
-    // ── IMAGE PATH: VLM only, 8s timeout ──
-    // Skip text enrichment — use VLM description for everything.
-    // This saves 3-5s and gives a much better title than "Image capture".
-    imageDescription = await Promise.race([
-      analyzeImage(imageBase64).catch(() => ''),
-      new Promise<string>((resolve) => setTimeout(() => resolve(''), 8000))
-    ])
-
-    if (imageDescription) {
-      // Generate a smart title from the VLM description
-      // Take the first meaningful line (up to 60 chars), skip generic UI text
-      const firstLine = imageDescription.split('\n')[0].trim()
-      const titleFromDesc = (firstLine || imageDescription).slice(0, 60).trim().replace(/\s+/g, ' ')
-      aiResponseString = JSON.stringify({
-        title: titleFromDesc,
-        summary: imageDescription.slice(0, 200),
-        tags: ['image', 'capture', 'visual'],
-        body: content || 'Image capture',
+      // ── Step 2: DIRECT VISION CALL (no compression, 8s timeout) ──
+      const visionPromise = zai.chat.completions.createVision({
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: VISION_PROMPT },
+            { type: 'image_url', image_url: { url: body.image } },
+          ],
+        }],
+        thinking: { type: 'disabled' },
       })
-    } else {
-      // VLM failed — use fallback
-      aiResponseString = JSON.stringify({
-        title: 'Image capture',
-        summary: 'A captured image. Ask Aether to analyze it.',
-        tags: ['image', 'capture', 'visual'],
-        body: 'Image capture',
-      })
+
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+      const res = await Promise.race([visionPromise, timeoutPromise])
+
+      if (res) {
+        const rawOutput = res.choices?.[0]?.message?.content?.trim() || ''
+
+        if (rawOutput) {
+          // ── Step 3: SPLIT THE VLM OUTPUT ──
+          const lines = rawOutput.split('\n').map((l: string) => l.trim()).filter(Boolean)
+
+          let title = 'Image capture'
+          let tags: string[] = ['image', 'capture', 'visual']
+          let description = rawOutput
+
+          if (lines.length >= 3) {
+            // Line 1: title
+            title = lines[0].slice(0, 80)
+            // Line 2: tags (comma-separated)
+            const tagLine = lines[1].toLowerCase()
+            const parsedTags = tagLine.split(',').map((t: string) => t.trim()).filter(Boolean).slice(0, 5)
+            if (parsedTags.length >= 2) tags = ['image', ...parsedTags.filter((t: string) => t !== 'image')].slice(0, 5)
+            // Line 3+: full description
+            description = lines.slice(2).join('\n')
+          } else if (lines.length === 1) {
+            title = lines[0].slice(0, 80)
+          }
+
+          // ── Step 4: SINGLE-PASS DATABASE INJECTION ──
+          const body = `${content || 'Image capture'}\n\n[Image content: ${description}]`.slice(0, 1000)
+
+          await userClient.from('memories').update({
+            title, body, content: body,
+            summary: description.slice(0, 280),
+            tags, category: 'image', processing: false,
+            metadata: {
+              title, summary: description.slice(0, 280), tags, type: 'image',
+              imageDescription: description,
+              searchKeywords: tags,
+              imageData: body.image,
+            },
+          }).eq('id', memoryId)
+
+          logger.info(`SUCCESS: Image memory ${memoryId} enriched — title: "${title}"`)
+          return NextResponse.json({ success: true, id: memoryId, enriched: true })
+        }
+      }
+
+      // VLM timed out or returned empty — use fallback
+      logger.warn('Aether · VLM timed out or empty for capture, using fallback')
+    } catch (err) {
+      logger.error('Aether · VLM error in capture:', err instanceof Error ? err.message : err)
     }
-  } else {
-    // ── TEXT PATH: text enrichment only, 3s timeout ──
-    const textForEnrichment = content || (hasAudio ? 'Voice note' : '')
-    aiResponseString = await Promise.race([
-      analyzeMemoryText(textForEnrichment),
-      new Promise<string>((resolve) => setTimeout(() => resolve(JSON.stringify({ title: textForEnrichment.slice(0, 60), summary: '', tags: ['capture'] })), 3000))
-    ])
+
+    // ── Fallback: VLM failed — store what we have ──
+    await userClient.from('memories').update({
+      title: content ? content.slice(0, 60) : 'Image capture',
+      body: `${content || 'Image capture'}\n\n[Image content: A captured image. Ask Aether to analyze it.]`,
+      summary: 'A captured image.', tags: ['image', 'capture', 'visual'],
+      category: 'image', processing: false,
+      metadata: { imageDescription: 'A captured image. Ask Aether to analyze it.' },
+    }).eq('id', memoryId)
+
+    return NextResponse.json({ success: true, id: memoryId })
   }
 
-  // ── Step 3: Update row with enriched data ──
+  // ════════════════════════════════════════════════════════════════
+  // TEXT/AUDIO PATH: Text enrichment (3s timeout)
+  // ════════════════════════════════════════════════════════════════
+  const textForEnrichment = content || (hasAudio ? 'Voice note' : '')
+  const aiResponseString = await Promise.race([
+    analyzeMemoryText(textForEnrichment),
+    new Promise<string>((resolve) => setTimeout(() => resolve(JSON.stringify({ title: textForEnrichment.slice(0, 60), summary: '', tags: ['capture'] })), 3000))
+  ])
+
   try {
     const aiData = JSON.parse(aiResponseString) as { title?: unknown; summary?: unknown; tags?: unknown; body?: unknown }
-
-    const title = typeof aiData.title === 'string' && aiData.title.trim()
-      ? aiData.title.trim().slice(0, 80)
-      : (hasImage ? 'Image capture' : 'Untitled Thought')
+    const title = typeof aiData.title === 'string' && aiData.title.trim() ? aiData.title.trim().slice(0, 80) : 'Untitled Thought'
     const summary = typeof aiData.summary === 'string' ? aiData.summary.trim().slice(0, 280) : ''
-    let tags: string[] = Array.isArray(aiData.tags)
-      ? aiData.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim()).slice(0, 5)
-      : []
-    if (hasImage && !tags.includes('image')) tags = ['image', ...tags].slice(0, 5)
-    if (tags.length === 0) tags = hasImage ? ['image', 'capture', 'visual'] : (hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note'])
+    let tags: string[] = Array.isArray(aiData.tags) ? aiData.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim()).slice(0, 5) : []
+    if (tags.length === 0) tags = hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note']
+    const correctedBody = typeof aiData.body === 'string' && aiData.body.trim() ? aiData.body.trim().slice(0, 500) : finalContent
+    const memoryType = classifyMemoryType(correctedBody)
+    const searchKeywords = extractKeywords(correctedBody, tags)
 
-    let correctedBody = typeof aiData.body === 'string' && aiData.body.trim()
-      ? aiData.body.trim().slice(0, 500)
-      : finalContent
-
-    // ── Double-anchor: embed VLM description into body text ──
-    if (hasImage && imageDescription) {
-      correctedBody = `${correctedBody}\n\n[Image content: ${imageDescription}]`.slice(0, 1000)
-    }
-
-    const memoryType = hasImage ? 'image' : classifyMemoryType(correctedBody)
-    const searchKeywords = extractKeywords([correctedBody, imageDescription].filter(Boolean).join(' '), tags)
-    const finalImageDescription = imageDescription || (hasImage ? 'A captured image. Use Ask Aether to analyze the actual content of this image.' : undefined)
-
-    const metadataObj: Record<string, unknown> = {
-      title, summary, tags, type: memoryType,
-      imageDescription: finalImageDescription, searchKeywords,
-    }
-    if (hasImage && imageBase64) metadataObj.imageData = imageBase64
+    const metadataObj: Record<string, unknown> = { title, summary, tags, type: memoryType, searchKeywords }
     if (hasAudio && typeof body.audio === 'string') metadataObj.audioData = body.audio
 
     await userClient.from('memories').update({
@@ -154,23 +201,16 @@ export async function POST(req: NextRequest) {
       summary, tags, category: memoryType, processing: false,
     }).eq('id', memoryId)
 
-    logger.info(`SUCCESS: Memory ${memoryId} enriched`)
     return NextResponse.json({ success: true, id: memoryId, enriched: true })
   } catch (parseError) {
     logger.error('Enrichment parse failed:', parseError instanceof Error ? parseError.message : parseError)
-    const fallbackTags = hasImage ? ['image', 'capture', 'visual'] : (hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note'])
-    const fallbackTitle = finalContent.slice(0, 60) || (hasImage ? 'Image capture' : 'Untitled Thought')
+    const fallbackTags = hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note']
     await userClient.from('memories').update({
-      processing: false, tags: fallbackTags, title: fallbackTitle, category: hasImage ? 'image' : 'note',
-      metadata: { title: fallbackTitle, summary: '', tags: fallbackTags, type: hasImage ? 'image' : 'note', imageDescription: hasImage ? 'A captured visual asset.' : undefined },
-    }).eq('id', memoryId).then(() => undefined, () => undefined)
+      processing: false, tags: fallbackTags, title: finalContent.slice(0, 60) || 'Untitled Thought',
+      category: 'note',
+    }).eq('id', memoryId)
     return NextResponse.json({ success: true, id: memoryId })
   }
-}
-
-async function analyzeImage(imageDataUrl: string): Promise<string> {
-  const VLM_PROMPT = `Analyze this image. Extract ALL visible text (OCR), identify all components, labels, specs, prices. Describe what you see. Output plain text, no JSON.`
-  return analyzeImageWithCLI(imageDataUrl, VLM_PROMPT, 8000)
 }
 
 function classifyMemoryType(text: string): string {
@@ -181,7 +221,6 @@ function classifyMemoryType(text: string): string {
   if (/\b(idea|what if|concept|imagine|brainstorm|could be|might be|product|app|feature|design|build|create|invent)\b/.test(t)) return 'ideas'
   if (/\b(family|friend|partner|wife|husband|girlfriend|boyfriend|mom|dad|mother|father|son|daughter|kid|relationship|love|date)\b/.test(t)) return 'relationships'
   if (/\b(todo|to-do|task|need to|must|should|have to|don'?t forget|remember to|finish|complete|ship|fix|call|send|buy|schedule|book)\b/.test(t)) return 'task'
-  if (t.includes('image capture') || t.startsWith('[image content:')) return 'image'
   return 'personal'
 }
 
