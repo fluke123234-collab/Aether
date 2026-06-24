@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { geminiVision, geminiText, stripFences } from '@/lib/gemini-ai'
+import { geminiVision, geminiAudio, geminiText, stripFences } from '@/lib/gemini-ai'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -28,6 +28,12 @@ No JSON, no markdown. Just raw text in the exact layout above.`
 const ENRICHMENT_PROMPT = `You are Aether's memory curator. Return JSON only.
 Title max 5 words. Summary 1 sentence. 5 contextual tags.
 Return: {"title":"...","summary":"...","tags":["t1","t2","t3","t4","t5"],"body":"corrected text"}`
+
+const AUDIO_PROMPT = `Listen to this audio clip. Output exactly 3 lines:
+[Line 1: A brief title summarizing the voice note in under 5 words]
+[Line 2: Exactly 5 comma-separated indexing tags like: tag1, tag2, tag3, tag4, tag5]
+[Line 3: The exact word-for-word text transcription of what was said]
+No JSON, no markdown. Just raw text in the exact layout above.`
 
 export async function POST(req: NextRequest) {
   let body: { content?: unknown; image?: unknown; audio?: unknown }
@@ -125,7 +131,51 @@ export async function POST(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // TEXT/AUDIO PATH: Gemini text enrichment
+  // AUDIO PATH: Gemini audio transcription → 3-line split → DB update
+  // ════════════════════════════════════════════════════════════════
+  if (hasAudio && typeof body.audio === 'string') {
+    const audioPayload = body.audio
+    const mimeMatch = audioPayload.match(/^data:(audio\/[a-z]+);/)
+    const audioMimeType = mimeMatch ? mimeMatch[1] : 'audio/webm'
+
+    const rawOutput = await geminiAudio(AUDIO_PROMPT, audioPayload, audioMimeType, 8000)
+
+    if (rawOutput) {
+      const lines = rawOutput.split('\n').map(l => l.trim()).filter(Boolean)
+      let title = 'Voice note'
+      let tags: string[] = ['voice', 'capture']
+      let transcription = rawOutput
+
+      if (lines.length >= 3) {
+        title = lines[0].slice(0, 80)
+        const parsedTags = lines[1].toLowerCase().split(',').map(t => t.trim()).filter(Boolean).slice(0, 5)
+        if (parsedTags.length >= 2) tags = ['voice', ...parsedTags.filter(t => t !== 'voice')].slice(0, 5)
+        transcription = lines.slice(2).join(' ')
+      } else if (lines.length === 1) {
+        title = lines[0].slice(0, 80)
+      }
+
+      const enrichedBody = (content ? content + '\n\n' : '') + transcription.slice(0, 800)
+
+      await userClient.from('memories').update({
+        title, body: enrichedBody, content: enrichedBody,
+        summary: transcription.slice(0, 280),
+        tags, category: 'voice', processing: false,
+        metadata: { title, summary: transcription.slice(0, 280), tags, type: 'voice',
+          audioData: audioPayload, searchKeywords: tags },
+      }).eq('id', memoryId)
+
+      logger.info(`SUCCESS: Voice memory ${memoryId} — title: "${title}"`)
+      return NextResponse.json({ success: true, id: memoryId, enriched: true })
+    }
+
+    // Gemini audio failed — fall back to text enrichment with user's text
+    logger.warn('Aether · Gemini audio transcription failed, using text fallback')
+    // Continue to text enrichment path below
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // TEXT PATH: Gemini text enrichment
   // ════════════════════════════════════════════════════════════════
   const textForEnrichment = content || (hasAudio ? 'Voice note' : '')
   let aiResponseString: string | null = null
@@ -152,7 +202,7 @@ export async function POST(req: NextRequest) {
     if (tags.length === 0) tags = hasAudio ? ['voice', 'capture'] : ['capture', 'note']
     const correctedBody = typeof aiData.body === 'string' && aiData.body.trim() ? aiData.body.trim().slice(0, 500) : finalContent
     // Single-category: use the first tag as the primary category, fallback to classifyMemoryType
-    const memoryType = tags.length > 0 ? tags[0] : classifyMemoryType(correctedBody)
+    const memoryType = hasAudio ? 'voice' : (tags.length > 0 ? tags[0] : classifyMemoryType(correctedBody))
 
     const metadataObj: Record<string, unknown> = { title, summary, tags, type: memoryType, searchKeywords: tags }
     if (hasAudio && typeof body.audio === 'string') metadataObj.audioData = body.audio
@@ -165,9 +215,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, id: memoryId, enriched: true })
   } catch (parseError) {
     logger.error('Enrichment parse failed:', parseError instanceof Error ? parseError.message : parseError)
-    const fallbackTags = hasAudio ? ['voice', 'capture', 'audio'] : ['capture', 'note']
+    const fallbackTags = hasAudio ? ['voice', 'capture'] : ['capture', 'note']
     await userClient.from('memories').update({
-      processing: false, tags: fallbackTags, title: finalContent.slice(0, 60) || 'Untitled Thought', category: 'note',
+      processing: false, tags: fallbackTags, title: finalContent.slice(0, 60) || 'Untitled Thought', category: hasAudio ? 'voice' : 'note',
     }).eq('id', memoryId)
     return NextResponse.json({ success: true, id: memoryId })
   }

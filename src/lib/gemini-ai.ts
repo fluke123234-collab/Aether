@@ -136,3 +136,37 @@ export function stripFences(raw: string): string {
   if (c.startsWith('```')) c = c.replace(/^```(?:json|text|html)?\s*/i, '').replace(/\s*```$/, '')
   return c
 }
+
+/**
+ * Audio transcription — tries Gemini (supports audio via inlineData), falls back to Z.ai proxy text.
+ * Gemini gemini-2.0-flash supports audio/webm and audio/mp3 natively.
+ */
+export async function geminiAudio(
+  prompt: string,
+  base64Data: string,
+  mimeType: string,
+  timeoutMs = 8000
+): Promise<string> {
+  // ── Try Gemini first (supports audio via inlineData) ──
+  const ai = getGemini()
+  if (ai) {
+    try {
+      const model = ai.getGenerativeModel({ model: MODEL_NAME })
+      const base64 = base64Data.startsWith('data:') ? base64Data.split(',')[1] : base64Data
+      const audioPart = { inlineData: { data: base64, mimeType: mimeType || 'audio/webm' } }
+      const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), timeoutMs))
+      const result = await Promise.race([model.generateContent([prompt, audioPart]), timeoutPromise])
+      if (result) {
+        const text = result.response.text().trim()
+        if (text) return text
+      }
+    } catch (err) {
+      logger.warn('Aether · Gemini audio failed, trying proxy:', err instanceof Error ? err.message.slice(0, 80) : err)
+    }
+  }
+
+  // ── Fallback: Z.ai proxy (text only — can't transcribe audio, but can generate tags from any user text) ──
+  // The proxy doesn't support audio, so we return empty and let the capture route use the user's text
+  logger.warn('Aether · Audio transcription unavailable, using user text only')
+  return ''
+}
