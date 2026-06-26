@@ -1,95 +1,186 @@
 /**
- * Aether · AI utility — direct fetch to ZAI API (NO SDK)
+ * Aether · Unified AI layer — Groq primary, Gemini fallback
  * ------------------------------------------------------------
- * Bypasses the z-ai-web-dev-sdk entirely. Uses direct fetch() with
- * hardcoded credentials as headers. This is the most reliable approach
- * for Vercel serverless — no SDK initialization, no module loading,
- * no file system lookups, no config parsing.
+ * Tries Groq first (fastest). If Groq fails, falls back to Gemini.
+ * Both providers handle all three modalities via public endpoints:
  *
- * Text endpoint:  POST https://internal-api.z.ai/v1/chat/completions
- * Vision endpoint: POST https://internal-api.z.ai/v1/chat/completions/vision
+ *   Groq:
+ *     • Text   → llama-3.3-70b-versatile
+ *     • Vision → llama-4-scout-17b-16e-instruct
+ *     • Audio  → whisper-large-v3
+ *
+ *   Gemini (gemini-2.0-flash):
+ *     • Text   → generateContent with text parts
+ *     • Vision → generateContent with inlineData image
+ *     • Audio  → generateContent with inlineData audio
+ *
+ * Every endpoint is a public URL that works on Vercel, localhost, or any host.
  */
 
 import { logger } from './logger'
 
-const ZAI_BASE_URL = 'https://internal-api.z.ai/v1'
-const ZAI_API_KEY = 'Z.ai'
-const ZAI_CHAT_ID = 'chat-29bf48db-839a-48ab-a402-026a1fd7cc19'
-const ZAI_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMmZkYWFkZmItZjAwMC00ODY3LWJiMDktZGM5Yjg1YTY5NzVlIiwiY2hhdF9pZCI6ImNoYXQtMjliZjQ4ZGItODM5YS00OGFiLWE0MDItMDI2YTFmZDdjYzE5IiwicGxhdGZvcm0iOiJ6YWkifQ.fMoxcqePFaXXPFrxh1ikzPOFYaFpyytyjc1QM8Nckf8'
-const ZAI_USER_ID = '2fdaadfb-f000-4867-bb09-dc9b85a6975e'
+// ── Groq config ──
+const GROQ_API_KEY = process.env.GROQ_API_KEY || ''
+const GROQ_BASE = 'https://api.groq.com/openai/v1'
+const GROQ_TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'llama-3.3-70b-versatile'
+const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'
+const GROQ_AUDIO_MODEL = process.env.GROQ_AUDIO_MODEL || 'whisper-large-v3'
 
-function buildHeaders(): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${ZAI_API_KEY}`,
-    'X-Z-AI-From': 'Z',
-    'X-Chat-Id': ZAI_CHAT_ID,
-    'X-User-Id': ZAI_USER_ID,
-    'X-Token': ZAI_TOKEN,
+// ── Gemini config ──
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
+
+export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+
+/* ════════════════════════════════════════════════════════════════
+ *  TEXT — chat completions
+ * ════════════════════════════════════════════════════════════════ */
+export async function groqChat(
+  messages: ChatMessage[],
+  opts?: {
+    jsonMode?: boolean
+    timeoutMs?: number
+    maxTokens?: number
+    temperature?: number
   }
+): Promise<string | null> {
+  const timeoutMs = opts?.timeoutMs ?? 12000
+
+  // ── Try Groq first ──
+  if (GROQ_API_KEY) {
+    const result = await tryGroqChat(messages, opts, timeoutMs)
+    if (result) return result
+  }
+
+  // ── Fall back to Gemini ──
+  if (GEMINI_API_KEY) {
+    const result = await tryGeminiText(messages, opts, timeoutMs)
+    if (result) return result
+  }
+
+  logger.warn('Aether · All text AI providers failed')
+  return null
 }
 
-/**
- * Text AI — direct fetch to ZAI chat/completions
- * No SDK, no module loading, just raw fetch.
- */
-export async function aiText(
-  messages: Array<{ role: string; content: string }>,
-  timeoutMs = 7000
+async function tryGroqChat(
+  messages: ChatMessage[],
+  opts: { jsonMode?: boolean; maxTokens?: number; temperature?: number } | undefined,
+  timeoutMs: number
 ): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    const body: Record<string, unknown> = {
+      model: GROQ_TEXT_MODEL,
+      messages,
+      temperature: opts?.temperature ?? 0.7,
+      max_tokens: opts?.maxTokens ?? 1024,
+    }
+    if (opts?.jsonMode) body.response_format = { type: 'json_object' }
 
-    const res = await fetch(`${ZAI_BASE_URL}/chat/completions`, {
+    const res = await fetch(`${GROQ_BASE}/chat/completions`, {
       method: 'POST',
-      headers: buildHeaders(),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
       signal: controller.signal,
-      body: JSON.stringify({
-        messages,
-        thinking: { type: 'disabled' },
-      }),
+      body: JSON.stringify(body),
     })
-
-    clearTimeout(timeout)
-
+    clearTimeout(timer)
     if (!res.ok) {
       const errText = await res.text().catch(() => '')
-      logger.warn(`Aether · aiText error ${res.status}: ${errText.slice(0, 200)}`)
+      logger.warn(`Aether · Groq text ${res.status}: ${errText.slice(0, 100)}`)
       return null
     }
-
     const json = await res.json()
-    const content = json?.choices?.[0]?.message?.content
-    return typeof content === 'string' && content.trim() ? content.trim() : null
+    return json?.choices?.[0]?.message?.content ?? null
   } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      logger.warn('Aether · aiText timed out')
-    } else {
-      logger.warn('Aether · aiText failed:', err instanceof Error ? err.message : err)
-    }
+    clearTimeout(timer)
+    logger.warn('Aether · Groq text failed:', err instanceof Error ? err.message.slice(0, 80) : err)
     return null
   }
 }
 
-/**
- * Vision AI — direct fetch to ZAI chat/completions/vision
- * No SDK, no module loading, just raw fetch.
- */
-export async function aiVision(
+async function tryGeminiText(
+  messages: ChatMessage[],
+  opts: { jsonMode?: boolean; maxTokens?: number; temperature?: number } | undefined,
+  timeoutMs: number
+): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    // Convert OpenAI-style messages → Gemini contents
+    const systemMsg = messages.find(m => m.role === 'system')
+    const contents = messages
+      .filter(m => m.role !== 'system')
+      .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
+
+    const body: Record<string, unknown> = {
+      contents,
+      generationConfig: {
+        temperature: opts?.temperature ?? 0.7,
+        maxOutputTokens: opts?.maxTokens ?? 1024,
+        ...(opts?.jsonMode ? { responseMimeType: 'application/json' } : {}),
+      },
+    }
+    if (systemMsg) body.systemInstruction = { parts: [{ text: systemMsg.content }] }
+
+    const res = await fetch(`${GEMINI_ENDPOINT}?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify(body),
+    })
+    clearTimeout(timer)
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      logger.warn(`Aether · Gemini text ${res.status}: ${errText.slice(0, 100)}`)
+      return null
+    }
+    const json = await res.json()
+    return json?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).join('') ?? null
+  } catch (err) {
+    clearTimeout(timer)
+    logger.warn('Aether · Gemini text failed:', err instanceof Error ? err.message.slice(0, 80) : err)
+    return null
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+ *  VISION — image analysis
+ * ════════════════════════════════════════════════════════════════ */
+export async function groqVision(
   prompt: string,
   imageDataUrl: string,
-  timeoutMs = 8000
+  opts?: { timeoutMs?: number }
 ): Promise<string> {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const timeoutMs = opts?.timeoutMs ?? 12000
 
-    const res = await fetch(`${ZAI_BASE_URL}/chat/completions/vision`, {
+  // ── Try Groq first ──
+  if (GROQ_API_KEY) {
+    const result = await tryGroqVision(prompt, imageDataUrl, timeoutMs)
+    if (result) return result
+  }
+
+  // ── Fall back to Gemini ──
+  if (GEMINI_API_KEY) {
+    const result = await tryGeminiVision(prompt, imageDataUrl, timeoutMs)
+    if (result) return result
+  }
+
+  logger.warn('Aether · All vision providers failed')
+  return ''
+}
+
+async function tryGroqVision(prompt: string, imageDataUrl: string, timeoutMs: number): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${GROQ_BASE}/chat/completions`, {
       method: 'POST',
-      headers: buildHeaders(),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
       signal: controller.signal,
       body: JSON.stringify({
+        model: GROQ_VISION_MODEL,
         messages: [{
           role: 'user',
           content: [
@@ -97,38 +188,175 @@ export async function aiVision(
             { type: 'image_url', image_url: { url: imageDataUrl } },
           ],
         }],
-        thinking: { type: 'disabled' },
+        temperature: 0.3,
+        max_tokens: 800,
       }),
     })
-
-    clearTimeout(timeout)
-
+    clearTimeout(timer)
     if (!res.ok) {
       const errText = await res.text().catch(() => '')
-      logger.warn(`Aether · aiVision error ${res.status}: ${errText.slice(0, 200)}`)
+      logger.warn(`Aether · Groq vision ${res.status}: ${errText.slice(0, 100)}`)
       return ''
     }
-
     const json = await res.json()
-    const content = json?.choices?.[0]?.message?.content
-    return typeof content === 'string' && content.trim() ? content.trim() : ''
+    return json?.choices?.[0]?.message?.content ?? ''
   } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      logger.warn('Aether · aiVision timed out')
-    } else {
-      logger.warn('Aether · aiVision failed:', err instanceof Error ? err.message : err)
-    }
+    clearTimeout(timer)
+    logger.warn('Aether · Groq vision failed:', err instanceof Error ? err.message.slice(0, 80) : err)
     return ''
   }
 }
 
-/**
- * Strip markdown code fences from a string.
- */
-export function stripCodeFences(raw: string): string {
-  let cleaned = raw.trim()
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json|text|html)?\s*/i, '').replace(/\s*```$/, '')
+async function tryGeminiVision(prompt: string, imageDataUrl: string, timeoutMs: number): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const match = imageDataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/)
+    if (!match) return ''
+    const mimeType = match[1]
+    const base64 = match[2]
+
+    const res = await fetch(`${GEMINI_ENDPOINT}?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { inlineData: { data: base64, mimeType } },
+          ],
+        }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 800 },
+      }),
+    })
+    clearTimeout(timer)
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      logger.warn(`Aether · Gemini vision ${res.status}: ${errText.slice(0, 100)}`)
+      return ''
+    }
+    const json = await res.json()
+    return json?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).join('') ?? ''
+  } catch (err) {
+    clearTimeout(timer)
+    logger.warn('Aether · Gemini vision failed:', err instanceof Error ? err.message.slice(0, 80) : err)
+    return ''
   }
-  return cleaned
+}
+
+/* ════════════════════════════════════════════════════════════════
+ *  AUDIO — transcription
+ *  Groq: Whisper via /audio/transcriptions
+ *  Gemini: generateContent with inlineData audio (native)
+ * ════════════════════════════════════════════════════════════════ */
+export async function groqTranscribe(
+  audioDataUrl: string,
+  opts?: { timeoutMs?: number }
+): Promise<string> {
+  const timeoutMs = opts?.timeoutMs ?? 12000
+
+  // ── Try Groq Whisper first ──
+  if (GROQ_API_KEY) {
+    const result = await tryGroqWhisper(audioDataUrl, timeoutMs)
+    if (result) return result
+  }
+
+  // ── Fall back to Gemini audio ──
+  if (GEMINI_API_KEY) {
+    const result = await tryGeminiAudio(audioDataUrl, timeoutMs)
+    if (result) return result
+  }
+
+  logger.warn('Aether · All transcription providers failed')
+  return ''
+}
+
+async function tryGroqWhisper(audioDataUrl: string, timeoutMs: number): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const match = audioDataUrl.match(/^data:(audio\/[a-z]+);base64,(.+)$/)
+    if (!match) return ''
+    const mimeType = match[1]
+    const base64 = match[2]
+    const buffer = Buffer.from(base64, 'base64')
+    const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('mp4') ? 'mp4' : mimeType.includes('mp3') ? 'mp3' : 'webm'
+
+    const formData = new FormData()
+    formData.append('file', new Blob([buffer], { type: mimeType }), `audio.${ext}`)
+    formData.append('model', GROQ_AUDIO_MODEL)
+    formData.append('response_format', 'text')
+    formData.append('language', 'en')
+
+    const res = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
+      body: formData,
+      signal: controller.signal,
+    })
+    clearTimeout(timer)
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      logger.warn(`Aether · Groq transcription ${res.status}: ${errText.slice(0, 100)}`)
+      return ''
+    }
+    return (await res.text()).trim()
+  } catch (err) {
+    clearTimeout(timer)
+    logger.warn('Aether · Groq transcription failed:', err instanceof Error ? err.message.slice(0, 80) : err)
+    return ''
+  }
+}
+
+async function tryGeminiAudio(audioDataUrl: string, timeoutMs: number): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const match = audioDataUrl.match(/^data:(audio\/[a-z]+);base64,(.+)$/)
+    if (!match) return ''
+    const mimeType = match[1]
+    const base64 = match[2]
+
+    const res = await fetch(`${GEMINI_ENDPOINT}?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: 'Transcribe this audio clip word-for-word. Output ONLY the transcription, no labels, no formatting.' },
+            { inlineData: { data: base64, mimeType } },
+          ],
+        }],
+        generationConfig: { temperature: 0.0, maxOutputTokens: 800 },
+      }),
+    })
+    clearTimeout(timer)
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      logger.warn(`Aether · Gemini audio ${res.status}: ${errText.slice(0, 100)}`)
+      return ''
+    }
+    const json = await res.json()
+    return json?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).join('') ?? ''
+  } catch (err) {
+    clearTimeout(timer)
+    logger.warn('Aether · Gemini audio failed:', err instanceof Error ? err.message.slice(0, 80) : err)
+    return ''
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+ *  Helper — strip markdown code fences from AI output
+ * ──────────────────────────────────────────────────────────── */
+export function stripFences(raw: string): string {
+  let c = raw.trim()
+  c = c.replace(/^```(?:json|text|html|markdown|md)?\s*/i, '')
+  c = c.replace(/\s*```\s*$/i, '')
+  c = c.replace(/```(?:json|text|html|markdown|md)?\s*/gi, '')
+  c = c.replace(/(?<![a-zA-Z0-9])`([^`\n]+)`(?![a-zA-Z0-9])/g, '$1')
+  return c.trim()
 }

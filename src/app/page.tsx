@@ -36,6 +36,7 @@ import { InsightModal } from '@/components/aether/InsightModal'
 import { AskAetherModal } from '@/components/aether/AskAetherModal'
 import { ProfileModal } from '@/components/aether/ProfileModal'
 import { LegalModal } from '@/components/aether/LegalModal'
+import { UpgradeModal } from '@/components/upgrade-modal'
 import { Serendipity } from '@/components/aether/Serendipity'
 import { useVoiceCapture } from '@/hooks/use-voice-capture'
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
@@ -777,6 +778,7 @@ export default function Home() {
   const [askOpen, setAskOpen] = useState(false)
   const [askInitialImage, setAskInitialImage] = useState<string | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [legalType, setLegalType] = useState<'privacy' | 'manifesto' | 'contact' | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const user = useAuthStore((s) => s.user)
@@ -1085,7 +1087,8 @@ export default function Home() {
       <RecapModal open={recapOpen} onClose={() => setRecapOpen(false)} />
       <InsightModal open={insightOpen} memoryId={insightMemory?.id ?? null} memoryTitle={insightMemory?.title ?? ''} onClose={() => setInsightOpen(false)} />
       <AskAetherModal key={askInitialImage ?? 'none'} open={askOpen} memories={memories} initialImage={askInitialImage} onClose={() => { setAskOpen(false); setAskInitialImage(null) }} onFocusMemory={(id) => { setActiveFolder(null); setHighlightId(id); setTimeout(() => setHighlightId((c) => c === id ? null : c), 4000); setTimeout(() => { const el = document.getElementById(`memory-${id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100); }} />
-      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
+      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} onUpgrade={() => { setProfileOpen(false); setUpgradeOpen(true) }} />
+      <UpgradeModal open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
       <LegalModal type={legalType} onClose={() => setLegalType(null)} />
 
       <SonnerToaster

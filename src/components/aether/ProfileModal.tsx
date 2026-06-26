@@ -8,7 +8,7 @@ import { useThemeStore } from '@/lib/theme-store'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 
-export function ProfileModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ProfileModal({ open, onClose, onUpgrade }: { open: boolean; onClose: () => void; onUpgrade?: () => void }) {
   const user = useAuthStore((s) => s.user)
   const signOut = useAuthStore((s) => s.signOut)
   const theme = useThemeStore((s) => s.theme)
@@ -89,7 +89,7 @@ export function ProfileModal({ open, onClose }: { open: boolean; onClose: () => 
           </div>
           <div className="flex items-center justify-between rounded-2xl border border-zinc-200/50 dark:border-zinc-800/60 bg-zinc-50 dark:bg-zinc-800/50 px-4 py-3">
             <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-500"><Crown className="h-4 w-4" /></div><div><p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Free plan</p><p className="text-xs text-zinc-400 dark:text-zinc-500">Upgrade for unlimited memories + AI</p></div></div>
-            <button className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white transition-all duration-300 hover:scale-105 active:scale-95">Upgrade</button>
+            <button onClick={onUpgrade} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white transition-all duration-300 hover:scale-105 active:scale-95">Upgrade</button>
           </div>
           <div className="space-y-1">
             <SettingsRow icon={theme === 'dark' ? Moon : Sun} label="Dark mode" onClick={toggleTheme} right={<Toggle on={theme === 'dark'} />} />

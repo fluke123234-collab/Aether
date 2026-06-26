@@ -1,12 +1,12 @@
-/** Aether · /api/insight — deeper AI reflection on a single memory */
+/** Aether · /api/insight — deeper AI reflection on a single memory (Groq) */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { groqChat, stripFences } from '@/lib/ai'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -28,28 +28,25 @@ export async function POST(req: NextRequest) {
   if (error || !memory) return NextResponse.json({ success: false, insight: '', angle: '', error: 'not_found' }, { status: 404 })
 
   const memoryText = `${memory.title || 'Untitled'}\n\n${memory.body || ''}`
-  let insight = 'Sometimes the act of keeping a thought is the insight itself.'
-  let angle = 'A gentler look'
+  let insight = 'Sometimes the act of keeping a thought is the insight itself.'; let angle = 'A gentler look'
 
-  // Use Groq text model (llama-3.3-70b-versatile)
-  try {
-    const { geminiText, stripFences } = await import('@/lib/gemini-ai')
-    const raw = await geminiText([
+  const raw = await groqChat(
+    [
       { role: 'system', content: INSIGHT_PROMPT },
-      { role: 'user', content: memoryText },
-    ], 7000)
+      { role: 'user', content: memoryText.slice(0, 2000) },
+    ],
+    { jsonMode: true, timeoutMs: 8000, maxTokens: 500, temperature: 0.7 }
+  )
 
-    if (raw) {
-      try {
-        const p = JSON.parse(stripFences(raw))
-        if (typeof p.angle === 'string') angle = p.angle.slice(0, 60)
-        if (typeof p.insight === 'string') insight = p.insight.slice(0, 800)
-      } catch {
-        insight = raw.slice(0, 800)
-      }
+  if (raw) {
+    try {
+      const cleaned = stripFences(raw)
+      const p = JSON.parse(cleaned)
+      if (typeof p.angle === 'string') angle = p.angle.slice(0, 60)
+      if (typeof p.insight === 'string') insight = p.insight.slice(0, 800)
+    } catch {
+      insight = stripFences(raw).slice(0, 800)
     }
-  } catch (err) {
-    logger.warn('Aether · insight failed:', err instanceof Error ? err.message : err)
   }
 
   return NextResponse.json({ success: true, insight, angle })
