@@ -15,7 +15,7 @@
  * pattern used by every other Aether modal.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 
@@ -43,13 +43,24 @@ export function UpgradeModal({ open, onClose }: { open: boolean; onClose: () => 
     }
   }, [open, onClose])
 
+  const [isProcessing, setIsProcessing] = useState(false)
+
   if (!open) return null
 
   const handleSelect = (tier: string) => {
-    toast(`${tier} — coming soon.`, {
-      description: 'Billing infrastructure arrives in a future build.',
-    })
-    onClose()
+    // Rage-click protection: hard drop any rapid double-clicks
+    if (isProcessing) return
+    setIsProcessing(true)
+    try {
+      toast(`${tier} — coming soon.`, {
+        description: 'Billing infrastructure arrives in a future build.',
+      })
+      onClose()
+    } catch {
+      toast.error('Sanctuary busy. One moment…')
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   return createPortal(

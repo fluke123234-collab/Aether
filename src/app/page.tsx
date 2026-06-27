@@ -37,6 +37,7 @@ import { AskAetherModal } from '@/components/aether/AskAetherModal'
 import { ProfileModal } from '@/components/aether/ProfileModal'
 import { LegalModal } from '@/components/aether/LegalModal'
 import { UpgradeModal } from '@/components/upgrade-modal'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { Serendipity } from '@/components/aether/Serendipity'
 import { useVoiceCapture } from '@/hooks/use-voice-capture'
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
@@ -225,13 +226,19 @@ function FloatingCapsule({
   onCapture,
   onCaptureWithImage,
   onCaptureWithAudio,
+  userTier,
+  onUpgrade,
 }: {
   onCapture: (text: string) => void
   onCaptureWithImage: (text: string, image: string) => void
   onCaptureWithAudio: (text: string, audio: string) => void
+  userTier: string
+  onUpgrade: () => void
 }) {
+  const isFreeTier = userTier === 'mist'
   const [value, setValue] = useState('')
   const [pendingImage, setPendingImage] = useState<string | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false) // Rage-click protection lock
   // useVoiceCapture handles speech-to-text transcription (Web Speech API)
   const { listening, supported, start, stop, audioData } = useVoiceCapture()
   // useVoiceRecorder handles native audio recording + real-time frequency analysis
@@ -239,24 +246,36 @@ function FloatingCapsule({
   const recorderReady = recorder.audioData && !recorder.listening
 
   const handleSubmit = () => {
+    // Rage-click protection: hard drop any accidental or rapid double-clicks
+    if (isProcessing) return
     const text = value.trim()
     // Prefer the high-fidelity recorder audio if available; fall back to the legacy capture audio.
     const finalAudio = recorderReady ? recorder.audioData : audioData
     if (!text && !pendingImage && !finalAudio) return
+    setIsProcessing(true)
     ensureAuthenticated(() => {
-      if (pendingImage) {
-        onCaptureWithImage(text, pendingImage)
-      } else if (finalAudio) {
-        onCaptureWithAudio(text || 'Voice note', finalAudio)
-      } else {
-        onCapture(text)
+      try {
+        if (pendingImage) {
+          onCaptureWithImage(text, pendingImage)
+        } else if (finalAudio) {
+          onCaptureWithAudio(text || 'Voice note', finalAudio)
+        } else {
+          onCapture(text)
+        }
+        setValue('')
+        setPendingImage(null)
+      } catch (err) {
+        logger.warn('Aether · capture pipeline drop:', err instanceof Error ? err.message : err)
+        toast.error('Sanctuary busy. One moment…')
+      } finally {
+        setIsProcessing(false)
       }
-      setValue('')
-      setPendingImage(null)
     })
   }
 
   const handleVoice = () => {
+    // Pre-flight gate: free tier cannot use voice recording
+    if (isFreeTier) { onUpgrade(); return }
     ensureAuthenticated(() => {
       if (listening || recorder.listening) {
         stop()
@@ -277,6 +296,8 @@ function FloatingCapsule({
   }
 
   const handleImagePick = () => {
+    // Pre-flight gate: free tier cannot attach images
+    if (isFreeTier) { onUpgrade(); return }
     ensureAuthenticated(() => {
       const input = document.createElement('input')
       input.type = 'file'
@@ -342,7 +363,18 @@ function FloatingCapsule({
         ) : (
           <input
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              const newValue = e.target.value
+              // Pre-flight gate: free tier cannot paste URLs
+              const containsUrl = /(https?:\/\/[^\s]+)/i.test(newValue)
+              if (isFreeTier && containsUrl) {
+                const flushed = newValue.replace(/(https?:\/\/[^\s]+)/gi, '').trim()
+                setValue(flushed)
+                onUpgrade()
+                return
+              }
+              setValue(newValue)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
             }}
@@ -781,6 +813,7 @@ export default function Home() {
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [legalType, setLegalType] = useState<'privacy' | 'manifesto' | 'contact' | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [userTier, setUserTier] = useState<string>('mist')
   const user = useAuthStore((s) => s.user)
   const userId = user?.id
 
@@ -795,6 +828,20 @@ export default function Home() {
     })
     return () => { sub.subscription.unsubscribe() }
   }, [])
+
+  // Fetch the user's tier on sign-in (for the pre-flight premium gate).
+  useEffect(() => {
+    if (!userId) { setUserTier('mist'); return }
+    let active = true
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!active || !session?.user) return
+      fetch('/api/tier', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } })
+        .then(r => r.json())
+        .then(d => { if (active && d.success) setUserTier(d.tier) })
+        .catch(() => {})
+    })
+    return () => { active = false }
+  }, [userId])
 
   // Load only the current user's memories.
   useEffect(() => {
@@ -1055,6 +1102,7 @@ export default function Home() {
   )
 
   return (
+    <ErrorBoundary>
     <div className="relative flex min-h-screen flex-col overscroll-y-contain">
       <TheGlow />
       <TopRail onOpenAsk={() => setAskOpen(true)} onOpenProfile={() => setProfileOpen(true)} />
@@ -1081,7 +1129,7 @@ export default function Home() {
 
       <Footer onOpenLegal={setLegalType} />
 
-      <FloatingCapsule onCapture={addMemory} onCaptureWithImage={addMemoryWithImage} onCaptureWithAudio={addMemoryWithAudio} />
+      <FloatingCapsule onCapture={addMemory} onCaptureWithImage={addMemoryWithImage} onCaptureWithAudio={addMemoryWithAudio} userTier={userTier} onUpgrade={() => setUpgradeOpen(true)} />
 
       <AuthModal />
       <RecapModal open={recapOpen} onClose={() => setRecapOpen(false)} />
@@ -1105,5 +1153,6 @@ export default function Home() {
         }}
       />
     </div>
+    </ErrorBoundary>
   )
 }
