@@ -252,11 +252,20 @@ function FloatingCapsule({
   // Check if free user has exceeded their 3-action allowance
   const canUsePremiumAction = (): boolean => {
     if (!isFreeTier) return true
-    if (freeActionsUsed >= ALLOWED_FREE_ACTIONS) return false
+    if (freeActionsUsed >= ALLOWED_FREE_ACTIONS) {
+      toast.error('Free limit reached', { description: 'You have used all 3 free premium actions. Upgrade to continue.', action: { label: 'Upgrade', onClick: onUpgrade } })
+      return false
+    }
     // Increment the counter
     const newCount = freeActionsUsed + 1
     setFreeActionsUsed(newCount)
     if (typeof window !== 'undefined') localStorage.setItem('aether-free-actions', String(newCount))
+    const remaining = ALLOWED_FREE_ACTIONS - newCount
+    if (remaining > 0) {
+      toast(`Free preview: ${remaining} action${remaining > 1 ? 's' : ''} left`, { description: 'Upgrade to Echo for unlimited AI captures.' })
+    } else {
+      toast("That was your last free action!", { description: 'Upgrade to Echo to continue capturing images, voice, and links.', action: { label: 'Upgrade now', onClick: onUpgrade } })
+    }
     return true
   }
   const [pendingImage, setPendingImage] = useState<string | null>(null)
