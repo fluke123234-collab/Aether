@@ -486,7 +486,7 @@ function RecapBlock({ onReadRecap }: { onReadRecap: () => void }) {
    ────────────────────────────────────────────────────────────── */
 
 function MemoryFeed({
-  memories, loading, favorites, onToggleFavorite, onInsight, onDownloadPdf, onDelete, activeFolder, onClearFolder, highlightId, onAskAboutImage,
+  memories, loading, favorites, onToggleFavorite, onInsight, onDownloadPdf, onDelete, activeFolder, onClearFolder, highlightId, onAskAboutImage, onViewAll,
 }: {
   memories: MemoryRow[]
   loading: boolean
@@ -499,6 +499,7 @@ function MemoryFeed({
   onClearFolder: () => void
   highlightId: string | null
   onAskAboutImage: (image: string) => void
+  onViewAll: () => void
 }) {
   return (
     <section className="mx-auto w-full max-w-6xl px-5">
@@ -530,7 +531,7 @@ function MemoryFeed({
           </p>
         </div>
         <button
-          onClick={() => ensureAuthenticated(() => setArchiveOpen(true))}
+          onClick={() => ensureAuthenticated(onViewAll)}
           className="group inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 dark:text-zinc-500 transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50 active:scale-95"
         >
           View all
@@ -1241,6 +1242,7 @@ export default function Home() {
           onClearFolder={() => setActiveFolder(null)}
           highlightId={highlightId}
           onAskAboutImage={(image) => { setAskInitialImage(image); setAskOpen(true) }}
+          onViewAll={() => setArchiveOpen(true)}
         />
       </main>
 

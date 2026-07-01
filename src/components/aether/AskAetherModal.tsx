@@ -124,7 +124,7 @@ export function AskAetherModal({ open, memories, initialImage, onClose, onFocusM
           }).catch(() => {})
         }
       }
-    } catch { if (token !== tokenRef.current) return; toast.error('Aether is not reachable right now.'); setLoading(false) }
+    } catch { if (token !== tokenRef.current) return; setTurns((prev) => [...prev, { question: question || '(image)', answer: 'I found your memories but could not reach the AI right now. Try again in a moment.', memoryIds: [], image: image || undefined }]); setLoading(false) }
   }
 
   const memoryById = (id: string) => memories.find((m) => m.id === id)

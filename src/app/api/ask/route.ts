@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { groqChat, groqVision, stripFences, type ChatMessage } from '@/lib/ai'
+import { groqChat, groqVision, stripFences, localMemorySearch, type ChatMessage } from '@/lib/ai'
 import { logger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -145,18 +145,18 @@ export async function POST(req: NextRequest) {
     { role: 'user', content: fullPrompt },
   ]
 
-  const raw = await groqChat(messages, { jsonMode: true, timeoutMs: 8000, maxTokens: 800, temperature: 0.7 })
+  const raw = await groqChat(messages, { jsonMode: true, timeoutMs: 3000, maxTokens: 400, temperature: 0.7 })
 
   if (raw) {
     const parsed = parseAnswer(raw, memories)
     return NextResponse.json({ success: true, answer: parsed.answer, memoryIds: parsed.memoryIds } satisfies AskResponse)
   }
 
-  return NextResponse.json({
-    success: true,
-    answer: "I'm having trouble connecting right now — give me a moment and try again.",
-    memoryIds: []
-  } satisfies AskResponse)
+  // LOCAL FALLBACK — All AI providers failed, but Ask Aether ALWAYS works.
+  // Search the user's memories locally and return real results.
+  logger.info('Aether · AI providers unavailable, using local memory search fallback')
+  const local = localMemorySearch(question, memories.map(m => ({ id: m.id, title: m.title, body: m.body })))
+  return NextResponse.json({ success: true, answer: local.answer, memoryIds: local.memoryIds } satisfies AskResponse)
 }
 
 function parseAnswer(raw: string, memories: MemoryRef[]): { answer: string; memoryIds: string[] } {
