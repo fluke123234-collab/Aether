@@ -28,7 +28,6 @@ export function RecapModal({ open, onClose, onUpgrade }: { open: boolean; onClos
   useEffect(() => {
     if (!open) return
     const token = ++tokenRef.current
-    setRecapStage('scanning')
 
     const load = async () => {
       // Stage 1: scanning
