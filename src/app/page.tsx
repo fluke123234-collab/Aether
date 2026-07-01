@@ -401,13 +401,16 @@ function FloatingCapsule({
             value={value}
             onChange={(e) => {
               const newValue = e.target.value
-              // Pre-flight gate: free tier gets 3 premium actions, then paywall
+              // Pre-flight gate: free tier URL check — instant, synchronous
               const containsUrl = /(https?:\/\/[^\s]+)/i.test(newValue)
-              if (isFreeTier && containsUrl && !checkPremium()) {
-                const flushed = newValue.replace(/(https?:\/\/[^\s]+)/gi, '').trim()
-                setValue(flushed)
-                onUpgrade()
-                return
+              if (isFreeTier && containsUrl) {
+                if (!checkPremium()) {
+                  // Paywall fired via InstantPaywall — strip URL, don't open onUpgrade
+                  const flushed = newValue.replace(/(https?:\/\/[^\s]+)/gi, '').trim()
+                  setValue(flushed)
+                  return
+                }
+                // Premium check passed — allow the URL through
               }
               setValue(newValue)
             }}
