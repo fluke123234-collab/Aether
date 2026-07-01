@@ -123,7 +123,7 @@
     -moz-osx-font-smoothing: grayscale;
     background-color: #FAFAFA !important;
     color: #18181b;
-    transition: background-color 0.4s ease, color 0.4s ease;
+    transition: none;
   }
   html.dark body {
     background-color: #09090B !important;

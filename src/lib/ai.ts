@@ -48,7 +48,7 @@ export async function groqChat(
   const timeoutMs = opts?.timeoutMs ?? 12000
 
   // ── Try Groq first ──
-  if (GROQ_API_KEY) {
+  for (let i = 0; i < GROQ_KEYS.length; i++) {
     const result = await tryGroqChat(messages, opts, timeoutMs)
     if (result) return result
   }
@@ -156,7 +156,7 @@ export async function groqVision(
   const timeoutMs = opts?.timeoutMs ?? 12000
 
   // ── Try Groq first ──
-  if (GROQ_API_KEY) {
+  for (let i = 0; i < GROQ_KEYS.length; i++) {
     const result = await tryGroqVision(prompt, imageDataUrl, timeoutMs)
     if (result) return result
   }
@@ -258,7 +258,7 @@ export async function groqTranscribe(
   const timeoutMs = opts?.timeoutMs ?? 12000
 
   // ── Try Groq Whisper first ──
-  if (GROQ_API_KEY) {
+  for (let i = 0; i < GROQ_KEYS.length; i++) {
     const result = await tryGroqWhisper(audioDataUrl, timeoutMs)
     if (result) return result
   }
@@ -359,4 +359,20 @@ export function stripFences(raw: string): string {
   c = c.replace(/```(?:json|text|html|markdown|md)?\s*/gi, '')
   c = c.replace(/(?<![a-zA-Z0-9])`([^`\n]+)`(?![a-zA-Z0-9])/g, '$1')
   return c.trim()
+}
+
+// LOCAL FALLBACK — Smart memory search (zero API keys needed)
+export type LocalMemory = { id: string; title: string; body: string }
+
+export function localMemorySearch(question: string, memories: LocalMemory[]): { answer: string; memoryIds: string[] } {
+  if (memories.length === 0) return { answer: "I don't have any memories from you yet. Capture a thought and I'll be able to help.", memoryIds: [] }
+  const stopwords = new Set(['what','have','been','thinking','about','your','were','they','from','will','would','could','should','tell','show','find','give','know','think','want','need','this','that','with','just','like','when','which','there','their','more','some','than','very','into','only','also','does','done','made','make'])
+  const q = question.toLowerCase()
+  const keywords = (q.match(/\b[a-z]{4,}\b/g) || []).filter(w => !stopwords.has(w))
+  const scored = memories.map(m => { const t = (m.title||'').toLowerCase(), b = (m.body||'').toLowerCase(); let s = 0; for (const kw of keywords) { if (t.includes(kw)) s += 3; if (b.includes(kw)) s += 1 } return { memory: m, score: s } })
+  scored.sort((a, b) => b.score - a.score)
+  const top = scored.filter(s => s.score > 0).slice(0, 3)
+  if (top.length > 0) { const ids = top.map(s => s.memory.id); const parts = top.map((s, i) => `${i+1}. ${s.memory.title}: ${(s.memory.body||'').slice(0,200)}`); return { answer: `Here's what I found:\n\n${parts.join('\n\n')}`, memoryIds: ids } }
+  const recent = memories.slice(0, 3); const ids = recent.map(m => m.id); const parts = recent.map((m, i) => `${i+1}. ${m.title}: ${(m.body||'').slice(0,200)}`)
+  return { answer: `Here are your most recent memories:\n\n${parts.join('\n\n')}`, memoryIds: ids }
 }

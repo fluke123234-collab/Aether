@@ -1,0 +1,4 @@
+const CACHE_NAME='aether-v1';const APP_SHELL=['/','/icon.svg','/manifest.json'];
+self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(APP_SHELL)));self.skipWaiting()});
+self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(n=>n!==CACHE_NAME).map(n=>caches.delete(n)))));self.clients.claim()});
+self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;const u=new URL(e.request.url);if(u.pathname.startsWith('/api/'))return;if(u.pathname.match(/\.(svg|png|jpg|jpeg|webp|ico|css|js|woff2?)$/i)){e.respondWith(caches.match(e.request).then(c=>c||fetch(e.request)));return}e.respondWith(fetch(e.request).then(r=>{const c=r.clone();caches.open(CACHE_NAME).then(cache=>cache.put(e.request,c));return r}).catch(()=>caches.match(e.request).then(c=>c||caches.match('/'))))});

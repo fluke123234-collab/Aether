@@ -16,6 +16,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { analyzeMemoryText } from '@/lib/gemini'
+import { checkCaptureAllowed, incrementUsage } from '@/lib/tier'
+import { checkPayloadSize, sanitizeInput, sanitizeDataUrl } from '@/lib/security'
 import { groqVision, groqTranscribe } from '@/lib/ai'
 import { logger } from '@/lib/logger'
 
@@ -66,6 +68,19 @@ export async function POST(req: NextRequest) {
 
   const userId = authData.user.id
 
+  // TIER VALIDATION PIPELINE
+  const hasUrl = content ? /https?:\/\/[^\s]+/i.test(content) : false
+  const isPremiumAsset = hasImage || hasAudio || hasUrl
+  if (isPremiumAsset) {
+    const gate = await checkCaptureAllowed(userId, token!)
+    if (!gate.allowed) {
+      return NextResponse.json(
+        { success: false, error: gate.error, message: gate.message, action: gate.action },
+        { status: gate.statusCode ?? 402 }
+      )
+    }
+  }
+
   // ── User-authenticated client so RLS passes ──
   const userClient = createClient(
     SUPABASE_URL || 'https://placeholder.supabase.co',
@@ -85,6 +100,7 @@ export async function POST(req: NextRequest) {
       {
         title: 'Capturing thought…',
         body: finalContent,
+        content: finalContent,
         summary: '',
         category: hasImage ? 'image' : 'note',
         tags: ['capture'],
@@ -209,6 +225,7 @@ export async function POST(req: NextRequest) {
     const elapsed = Date.now() - insertedAt
     logger.info(`SUCCESS: Memory enriched in ${elapsed}ms`)
 
+    if (isPremiumAsset) { await incrementUsage(userId, token!).catch(() => {}) }
     return NextResponse.json({ success: true, id: memoryId, enriched: true })
   } catch (parseError) {
     logger.error('Enrichment parse failed:', parseError instanceof Error ? parseError.message : parseError)

@@ -144,10 +144,10 @@ function TopRail({ onOpenAsk, onOpenProfile }: { onOpenAsk: () => void; onOpenPr
         <button onClick={() => ensureAuthenticated(onOpenAsk)} className="group ml-2 hidden flex-1 sm:block">
           <span className="group relative flex items-center">
             <Search className="pointer-events-none absolute left-4 h-[18px] w-[18px] text-zinc-400 dark:text-zinc-500 transition-colors duration-300 group-hover:text-purple-500" />
-            <span className="flex h-10 w-full max-w-md items-center rounded-full bg-white dark:bg-[#18181B] border border-zinc-200/50 dark:border-zinc-800/60 pl-11 pr-16 text-sm text-zinc-400 dark:text-zinc-500 shadow-[inset_0_1px_2px_rgb(0,0,0,0.03)] transition-all duration-300 group-hover:border-zinc-200 dark:hover:border-zinc-700 group-hover:shadow-inner">
+            <span className="flex h-10 w-full max-w-md items-center rounded-full bg-white dark:bg-[#18181B] border border-zinc-200/50 dark:border-zinc-800/60 pl-11 pr-3 text-sm text-zinc-400 dark:text-zinc-500 shadow-[inset_0_1px_2px_rgb(0,0,0,0.03)] transition-all duration-300 group-hover:border-zinc-200 dark:hover:border-zinc-700 group-hover:shadow-inner">
               Ask Aether anything…
             </span>
-            <kbd className="absolute right-3 hidden md:flex items-center gap-1 rounded-md border border-zinc-200/50 dark:border-zinc-800/60 bg-zinc-50 dark:bg-zinc-800/50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">⌘K</kbd>
+            <span className="absolute right-3 hidden md:flex items-center rounded-md border border-zinc-200/50 dark:border-zinc-800/60 bg-zinc-50 dark:bg-zinc-800/50 px-2 py-0.5 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">Ask Aether</span>
           </span>
         </button>
 
@@ -660,11 +660,11 @@ function MemoryCard({
 
       {/* Action row: insight / ask-about-image / PDF / delete — appears on hover */}
       {!processing && (
-        <div className="mt-4 flex items-center justify-end gap-1 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+        <div className="mt-4 flex items-center justify-end gap-1 opacity-100 md:opacity-0 transition-opacity duration-300 md:group-hover:opacity-100">
           <button
             aria-label="AI insight"
             onClick={() => ensureAuthenticated(() => onInsight(memory))}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:scale-110 hover:bg-purple-50 dark:hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400 active:scale-95"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:scale-110 hover:bg-purple-50 dark:hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400 active:scale-95"
           >
             <Sparkles className="h-4 w-4" />
           </button>
@@ -673,7 +673,7 @@ function MemoryCard({
             <button
               aria-label="Ask Aether about this image"
               onClick={() => ensureAuthenticated(() => onAskAboutImage(imageData))}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:scale-110 hover:bg-purple-50 dark:hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400 active:scale-95"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:scale-110 hover:bg-purple-50 dark:hover:bg-purple-500/10 hover:text-purple-600 dark:hover:text-purple-400 active:scale-95"
             >
               <Search className="h-4 w-4" />
             </button>
@@ -681,7 +681,7 @@ function MemoryCard({
           <button
             aria-label="Download as PDF"
             onClick={() => ensureAuthenticated(() => onDownloadPdf(memory))}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:scale-110 hover:bg-zinc-100 dark:hover:bg-zinc-800 dark:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-300 dark:text-zinc-300 active:scale-95"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 dark:text-zinc-500 transition-all duration-300 hover:scale-110 hover:bg-zinc-100 dark:hover:bg-zinc-800 dark:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-300 dark:text-zinc-300 active:scale-95"
           >
             <Download className="h-4 w-4" />
           </button>
