@@ -17,10 +17,10 @@ export async function POST(req: NextRequest) {
   if (authError || !authData.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const userClient = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-anon-key', { global: { headers: { Authorization: `Bearer ${token}` } } })
-  const { data: rows, error } = await userClient.from('memories').select('id, title, body, summary, tags, created_at, category').eq('user_id', authData.user.id).order('created_at', { ascending: true })
+  const { data: rows, error } = await userClient.from('memories').select('id, title, body, summary, tags, created_at, category, metadata').eq('user_id', authData.user.id).order('created_at', { ascending: true })
   if (error) { logger.warn('Aether · export failed:', error.message); return NextResponse.json({ error: error.message }, { status: 500 }) }
 
-  const memories = (rows ?? []).map((r) => ({ id: r.id, title: r.title || 'Untitled', body: r.body || '', summary: r.summary, tags: r.tags, created_at: r.created_at, category: r.category || 'note' }))
+  const memories = (rows ?? []).map((r) => ({ id: r.id, title: r.title || 'Untitled', body: r.body || '', summary: r.summary, tags: r.tags, created_at: r.created_at, category: r.category || 'note', metadata: r.metadata as { imageDescription?: string; transcription?: string } | null }))
   const pdfBytes = generateBookPdf(memories)
   const dateStr = new Date().toISOString().split('T')[0]
   return new NextResponse(pdfBytes, { status: 200, headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="aether-sanctuary-${dateStr}.pdf"`, 'Content-Length': String(pdfBytes.byteLength) } })
@@ -46,7 +46,7 @@ const C = {
   emeraldLight: '0.92 0.97 0.95',
 }
 
-function generateBookPdf(memories: { title: string; body: string; summary: string | null; tags: string[] | null; created_at: string; category: string }[]): Uint8Array {
+function generateBookPdf(memories: { title: string; body: string; summary: string | null; tags: string[] | null; created_at: string; category: string; metadata: { imageDescription?: string; transcription?: string } | null }[]): Uint8Array {
   const pageWidth = 595, pageHeight = 842, margin = 64, contentWidth = pageWidth - margin * 2
   const objects: string[] = []
   const contentOps: string[] = []
@@ -55,32 +55,93 @@ function generateBookPdf(memories: { title: string; body: string; summary: strin
   const minCursorY = margin + 40
 
   function newPage() {
-    // Footer with page number + branding
     contentOps.push(C.mutedLight + ' rg', 'BT /F1 8 Tf', `1 0 0 1 ${pageWidth / 2 - 10} 36 Tm`, `(${pageNum}) Tj ET`)
-    contentOps.push(C.mutedLight + ' rg', 'BT /F1 7 Tf', `1 0 0 1 ${margin} 36 Tm`, `(Aether — a quieter place to think) Tj ET`)
-    // Top accent line
+    contentOps.push(C.mutedLight + ' rg', 'BT /F1 7 Tf', `1 0 0 1 ${margin} 36 Tm`, `(Aether) Tj ET`)
     contentOps.push(C.purple + ' rg', `${margin} ${pageHeight - margin + 8} 40 1.5 re f`)
     pageNum++
     cursorY = pageHeight - margin - 10
   }
 
   // ═══ COVER PAGE ═══
-  cursorY = pageHeight / 2 + 80
-  // Purple accent bar
+  cursorY = pageHeight / 2 + 100
   contentOps.push(C.purple + ' rg', `${margin} ${cursorY} 50 4 re f`)
   cursorY -= 40
-  // Title
   contentOps.push(C.dark + ' rg', 'BT /F3 42 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(Aether) Tj ET`)
   cursorY -= 55
-  // Subtitle
   contentOps.push(C.muted + ' rg', 'BT /F2 16 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(Your sanctuary, kept.) Tj ET`)
   cursorY -= 30
-  // Date + count
   const exportDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
   contentOps.push(C.muted + ' rg', 'BT /F1 10 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdf(memories.length + ' thoughts  ·  exported ' + exportDate)}) Tj ET`)
   cursorY -= 25
-  // Decorative line
   contentOps.push(C.divider + ' rg', `${margin} ${cursorY} ${contentWidth} 0.5 re f`)
+  cursorY -= 25
+  // Cover quote
+  contentOps.push(C.purpleMid + ' rg', 'BT /F3 13 Tf', `1 0 0 1 ${margin + 20} ${cursorY} Tm`, `(Luxury is the absence of friction,) Tj ET`)
+  cursorY -= 20
+  contentOps.push(C.purpleMid + ' rg', 'BT /F3 13 Tf', `1 0 0 1 ${margin + 20} ${cursorY} Tm`, `(felt as ease.) Tj ET`)
+
+  newPage()
+
+  // ═══ SANCTUARY STATISTICS PAGE ═══
+  cursorY = pageHeight - margin - 10
+  contentOps.push(C.purple + ' rg', `${margin} ${cursorY} 30 2 re f`)
+  cursorY -= 28
+  contentOps.push(C.dark + ' rg', 'BT /F3 22 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(Sanctuary Statistics) Tj ET`)
+  cursorY -= 35
+
+  // Calculate stats
+  const totalWords = memories.reduce((sum, m) => sum + (m.body || '').split(/\s+/).filter(w => w.length > 0).length, 0)
+  const totalChars = memories.reduce((sum, m) => sum + (m.body || '').length, 0)
+  const tagCount = new Map<string, number>()
+  for (const m of memories) { for (const t of (m.tags ?? [])) { if (t !== 'capture') tagCount.set(t, (tagCount.get(t) || 0) + 1) } }
+  const topTags = Array.from(tagCount.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5)
+  const dateRange = memories.length > 0 ? `${new Date(memories[0].created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} — ${new Date(memories[memories.length - 1].created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '—'
+  const imageCount = memories.filter(m => m.metadata?.imageDescription).length
+  const voiceCount = memories.filter(m => m.metadata?.transcription || (m.tags ?? []).includes('voice')).length
+  const textCount = memories.length - imageCount - voiceCount
+
+  // Stats grid (2 columns)
+  const stats = [
+    { label: 'Total Thoughts', value: String(memories.length) },
+    { label: 'Total Words', value: totalWords.toLocaleString() },
+    { label: 'Date Range', value: dateRange },
+    { label: 'Text Notes', value: String(textCount) },
+    { label: 'Image Captures', value: String(imageCount) },
+    { label: 'Voice Notes', value: String(voiceCount) },
+  ]
+
+  for (let i = 0; i < stats.length; i++) {
+    const col = i % 2
+    const row = Math.floor(i / 2)
+    const x = margin + col * (contentWidth / 2 + 10)
+    const y = cursorY - row * 70
+    // Card background
+    contentOps.push(C.cardBg + ' rg', `${x} ${y - 50} ${contentWidth / 2 - 10} 55 re f`)
+    // Left accent
+    contentOps.push(C.purple + ' rg', `${x} ${y - 50} 2.5 55 re f`)
+    // Label
+    contentOps.push(C.muted + ' rg', 'BT /F2 8 Tf', `1 0 0 1 ${x + 12} ${y - 14} Tm`, `(${escapePdf(stats[i].label.toUpperCase())}) Tj ET`)
+    // Value
+    contentOps.push(C.dark + ' rg', 'BT /F3 16 Tf', `1 0 0 1 ${x + 12} ${y - 36} Tm`, `(${escapePdf(stats[i].value)}) Tj ET`)
+  }
+  cursorY -= 3 * 70 + 10
+
+  // Top tags
+  if (topTags.length > 0) {
+    if (cursorY < minCursorY + 80) newPage()
+    contentOps.push(C.dark + ' rg', 'BT /F3 14 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(Most Used Tags) Tj ET`)
+    cursorY -= 24
+    for (const [tag, count] of topTags) {
+      if (cursorY < minCursorY) newPage()
+      // Tag pill
+      const tagText = `#${tag}`
+      contentOps.push(C.dateBg + ' rg', `${margin} ${cursorY - 10} 120 18 re f`)
+      contentOps.push(C.purpleMid + ' rg', 'BT /F2 9 Tf', `1 0 0 1 ${margin + 8} ${cursorY - 4} Tm`, `(${escapePdf(tagText)}) Tj ET`)
+      // Count
+      contentOps.push(C.muted + ' rg', 'BT /F1 9 Tf', `1 0 0 1 ${margin + 140} ${cursorY - 4} Tm`, `(${count} thought${count > 1 ? 's' : ''}) Tj ET`)
+      cursorY -= 24
+    }
+  }
 
   newPage()
 
@@ -91,20 +152,30 @@ function generateBookPdf(memories: { title: string; body: string; summary: strin
   contentOps.push(C.dark + ' rg', 'BT /F3 22 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(Contents) Tj ET`)
   cursorY -= 30
 
-  // Group by date
-  const byDate = new Map<string, number>()
+  const byDate = new Map<string, { count: number; titles: string[] }>()
   for (const m of memories) {
     const d = new Date(m.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    byDate.set(d, (byDate.get(d) || 0) + 1)
+    if (!byDate.has(d)) byDate.set(d, { count: 0, titles: [] })
+    const entry = byDate.get(d)!
+    entry.count++
+    if (entry.titles.length < 3) entry.titles.push(m.title)
   }
 
-  for (const [date, count] of byDate) {
-    if (cursorY < minCursorY) newPage()
-    contentOps.push(C.muted + ' rg', 'BT /F1 10 Tf', `1 0 0 1 ${margin + 8} ${cursorY} Tm`, `(${escapePdf(date)}) Tj ET`)
-    contentOps.push(C.purpleMid + ' rg', 'BT /F2 10 Tf', `1 0 0 1 ${pageWidth - margin - 60} ${cursorY} Tm`, `(${count} thought${count > 1 ? 's' : ''}) Tj ET`)
-    // Dotted line
-    contentOps.push(C.divider + ' rg', `${margin + 8} ${cursorY - 3} ${contentWidth - 80} 0.3 re f`)
-    cursorY -= 20
+  for (const [date, info] of byDate) {
+    if (cursorY < minCursorY + 60) newPage()
+    // Date header
+    contentOps.push(C.purpleMid + ' rg', 'BT /F2 11 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdf(date)}) Tj ET`)
+    contentOps.push(C.muted + ' rg', 'BT /F1 9 Tf', `1 0 0 1 ${pageWidth - margin - 60} ${cursorY} Tm`, `(${info.count} thought${info.count > 1 ? 's' : ''}) Tj ET`)
+    cursorY -= 16
+    // Preview titles
+    contentOps.push(C.muted + ' rg')
+    for (const title of info.titles) {
+      contentOps.push('BT /F1 9 Tf', `1 0 0 1 ${margin + 12} ${cursorY} Tm`, `(${escapePdf('· ' + title.slice(0, 50))}) Tj ET`)
+      cursorY -= 13
+    }
+    cursorY -= 8
+    contentOps.push(C.divider + ' rg', `${margin} ${cursorY} ${contentWidth} 0.3 re f`)
+    cursorY -= 14
   }
 
   newPage()
@@ -114,12 +185,14 @@ function generateBookPdf(memories: { title: string; body: string; summary: strin
     const m = memories[idx]
     if (cursorY < minCursorY + 120) newPage()
 
-    // Date badge (pill shape)
+    // Date badge
     const mDate = new Date(m.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
     const mTime = new Date(m.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-    const dateWidth = 200
+    const dateWidth = 220
     contentOps.push(C.dateBg + ' rg', `${margin} ${cursorY - 12} ${dateWidth} 18 re f`)
     contentOps.push(C.purpleMid + ' rg', 'BT /F2 8 Tf', `1 0 0 1 ${margin + 8} ${cursorY - 6} Tm`, `(${escapePdf(mDate + '  ·  ' + mTime)}) Tj ET`)
+    // Entry number
+    contentOps.push(C.mutedLight + ' rg', 'BT /F1 8 Tf', `1 0 0 1 ${pageWidth - margin - 30} ${cursorY - 6} Tm`, `(${idx + 1}/${memories.length}) Tj ET`)
     cursorY -= 28
 
     // Title
@@ -140,36 +213,41 @@ function generateBookPdf(memories: { title: string; body: string; summary: strin
     }
     cursorY -= 10
 
-    // Summary card (if exists)
+    // Image description card (if exists)
+    const imgDesc = m.metadata?.imageDescription?.trim()
+    if (imgDesc) {
+      if (cursorY < minCursorY + 60) newPage()
+      const descLines = wrapText(imgDesc, 78)
+      const cardHeight = Math.max(45, descLines.length * 13 + 22)
+      contentOps.push(C.cardBg + ' rg', `${margin} ${cursorY - cardHeight} ${contentWidth} ${cardHeight} re f`)
+      contentOps.push(C.emerald + ' rg', `${margin} ${cursorY - cardHeight} 3 ${cardHeight} re f`)
+      contentOps.push(C.emerald + ' rg', 'BT /F2 8 Tf', `1 0 0 1 ${margin + 14} ${cursorY - 14} Tm`, `(IMAGE ANALYSIS) Tj ET`)
+      contentOps.push(C.body + ' rg')
+      let sy = cursorY - 26
+      for (const line of descLines) { contentOps.push('BT /F1 9 Tf', `1 0 0 1 ${margin + 14} ${sy} Tm`, `(${escapePdf(line)}) Tj ET`); sy -= 13 }
+      cursorY -= cardHeight + 10
+    }
+
+    // Summary / reflection card (if exists)
     if (m.summary?.trim()) {
       if (cursorY < minCursorY + 60) newPage()
       const summaryLines = wrapText(m.summary, 80)
       const cardHeight = Math.max(50, summaryLines.length * 14 + 24)
-      // Card background
       contentOps.push(C.purpleLight + ' rg', `${margin} ${cursorY - cardHeight} ${contentWidth} ${cardHeight} re f`)
-      // Left accent bar
       contentOps.push(C.purple + ' rg', `${margin} ${cursorY - cardHeight} 3 ${cardHeight} re f`)
-      // Label
       contentOps.push(C.purpleMid + ' rg', 'BT /F2 8 Tf', `1 0 0 1 ${margin + 14} ${cursorY - 14} Tm`, `(REFLECTION) Tj ET`)
-      // Summary text
       contentOps.push(C.purpleMid + ' rg')
       let sy = cursorY - 28
-      for (const line of summaryLines) {
-        contentOps.push('BT /F1 9 Tf', `1 0 0 1 ${margin + 14} ${sy} Tm`, `(${escapePdf(line)}) Tj ET`)
-        sy -= 13
-      }
+      for (const line of summaryLines) { contentOps.push('BT /F1 9 Tf', `1 0 0 1 ${margin + 14} ${sy} Tm`, `(${escapePdf(line)}) Tj ET`); sy -= 13 }
       cursorY -= cardHeight + 12
     }
 
     // Tags
-    const tags = m.tags ?? []
-    if (tags.length && tags.some(t => t !== 'capture')) {
+    const tags = (m.tags ?? []).filter(t => t !== 'capture')
+    if (tags.length) {
       if (cursorY < minCursorY + 20) newPage()
-      const displayTags = tags.filter(t => t !== 'capture')
-      if (displayTags.length) {
-        contentOps.push(C.muted + ' rg', 'BT /F1 8 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdf(displayTags.map(t => '#' + t).join('   '))}) Tj ET`)
-        cursorY -= 18
-      }
+      contentOps.push(C.muted + ' rg', 'BT /F1 8 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdf(tags.map(t => '#' + t).join('   '))}) Tj ET`)
+      cursorY -= 18
     }
 
     // Divider
@@ -182,7 +260,7 @@ function generateBookPdf(memories: { title: string; body: string; summary: strin
 
   // ═══ BACK COVER ═══
   newPage()
-  cursorY = pageHeight / 2 + 20
+  cursorY = pageHeight / 2 + 40
   contentOps.push(C.purple + ' rg', `${margin} ${cursorY} 40 3 re f`)
   cursorY -= 35
   contentOps.push(C.dark + ' rg', 'BT /F3 24 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(Your mind,) Tj ET`)
@@ -191,9 +269,11 @@ function generateBookPdf(memories: { title: string; body: string; summary: strin
   cursorY -= 40
   contentOps.push(C.muted + ' rg', 'BT /F2 12 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdf(memories.length + ' thoughts preserved through Aether.')}) Tj ET`)
   cursorY -= 25
+  // Word count stat
+  contentOps.push(C.mutedLight + ' rg', 'BT /F1 10 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdf(totalWords.toLocaleString() + ' words captured.')}) Tj ET`)
+  cursorY -= 20
   contentOps.push(C.mutedLight + ' rg', 'BT /F1 9 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(A quieter place to think.) Tj ET`)
 
-  // Last page footer
   contentOps.push(C.mutedLight + ' rg', 'BT /F1 8 Tf', `1 0 0 1 ${pageWidth / 2 - 10} 36 Tm`, `(${pageNum}) Tj ET`)
 
   // ═══ BUILD PDF ═══
