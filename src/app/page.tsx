@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { formatDistanceToNow } from 'date-fns'
+import { createPortal } from 'react-dom'
 import { toast, Toaster as SonnerToaster } from 'sonner'
 import {
   Search,
@@ -38,7 +39,6 @@ import { ProfileModal } from '@/components/aether/ProfileModal'
 import { LegalModal } from '@/components/aether/LegalModal'
 import { UpgradeModal } from '@/components/upgrade-modal'
 import { ErrorBoundary } from '@/components/error-boundary'
-import { Serendipity } from '@/components/aether/Serendipity'
 import { useVoiceCapture } from '@/hooks/use-voice-capture'
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
 import { useOfflineQueue } from '@/hooks/use-offline-queue'
@@ -530,13 +530,7 @@ function MemoryFeed({
           </p>
         </div>
         <button
-          onClick={() =>
-            ensureAuthenticated(() =>
-              toast('Opening your full archive…', {
-                description: 'Every kept thought, in one place.',
-              })
-            )
-          }
+          onClick={() => ensureAuthenticated(() => setArchiveOpen(true))}
           className="group inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 dark:text-zinc-500 transition-colors duration-300 hover:text-zinc-900 dark:hover:text-zinc-50 dark:text-zinc-50 active:scale-95"
         >
           View all
@@ -818,6 +812,50 @@ function Footer({ onOpenLegal }: { onOpenLegal: (type: 'privacy' | 'manifesto' |
 }
 
 /* ──────────────────────────────────────────────────────────────
+   Archive Modal — glassmorphic full-memory overlay
+   ────────────────────────────────────────────────────────────── */
+function ArchiveModal({ open, onClose, memories, onFocusMemory }: { open: boolean; onClose: () => void; memories: MemoryRow[]; onFocusMemory: (id: string) => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow; document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    const t = setTimeout(() => closeRef.current?.focus(), 30)
+    return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); clearTimeout(t) }
+  }, [open, onClose])
+  if (!open) return null
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label="All memories" className="fixed inset-0 z-[100] flex items-center justify-center p-5">
+      <div aria-hidden onClick={onClose} className="absolute inset-0 bg-black/40 backdrop-blur-xl" />
+      <div className="relative w-full max-w-2xl animate-[aether-modal-in_220ms_cubic-bezier(0.16,1,0.3,1)]">
+        <div className="overflow-hidden rounded-[28px] border border-zinc-200/50 dark:border-zinc-800/60 bg-white/90 dark:bg-[#18181B]/90 backdrop-blur-xl shadow-[0_40px_120px_-20px_rgba(0,0,0,0.35)]">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800/60 bg-white/90 dark:bg-[#18181B]/90 px-6 py-4 backdrop-blur-xl">
+            <h2 className="font-display text-xl tracking-tight text-zinc-900 dark:text-zinc-50">Your full archive</h2>
+            <button ref={closeRef} aria-label="Close" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-all duration-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 active:scale-95"><X className="h-4 w-4" /></button>
+          </div>
+          <div className="max-h-[70vh] overflow-y-auto px-6 py-5 aether-scroll">
+            {memories.length === 0 ? <p className="py-10 text-center text-sm text-zinc-400 dark:text-zinc-500">Your archive is clear.</p> : (
+              <div className="space-y-3">
+                {memories.map((m) => (
+                  <button key={m.id} onClick={() => onFocusMemory(m.id)} className="block w-full rounded-xl border border-zinc-100 dark:border-zinc-800/60 bg-zinc-50/50 dark:bg-zinc-800/30 p-4 text-left transition-all duration-300 hover:border-purple-200 dark:hover:border-purple-500/30 hover:bg-purple-50/50 dark:hover:bg-purple-500/5 active:scale-[0.99]">
+                    <div className="mb-1 flex items-center justify-between">
+                      <h4 className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{m.title}</h4>
+                      <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{timeAgo(m.created_at)}</span>
+                    </div>
+                    <p className="text-sm leading-relaxed text-zinc-500 dark:text-zinc-400 line-clamp-3">{m.body?.replace(/\s*\[Image content:[\s\S]*?\]\s*/g, '').trim() || m.body}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <style>{`@keyframes aether-modal-in { from { opacity: 0; transform: translateY(8px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }`}</style>
+    </div>, document.body)
+}
+
+/* ──────────────────────────────────────────────────────────────
    Page Shell — owns the live data state
    ────────────────────────────────────────────────────────────── */
 
@@ -836,6 +874,7 @@ export default function Home() {
   const [legalType, setLegalType] = useState<'privacy' | 'manifesto' | 'contact' | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const [userTier, setUserTier] = useState<string>('mist')
+  const [archiveOpen, setArchiveOpen] = useState(false)
   const user = useAuthStore((s) => s.user)
   const userId = user?.id
   const { queueCapture, checkOnline } = useOfflineQueue()
@@ -1190,7 +1229,6 @@ export default function Home() {
         <HeroGreeting />
         <RecapBlock onReadRecap={() => ensureAuthenticated(() => setRecapOpen(true))} />
         <Collections memories={memories} activeFolder={activeFolder} onSelectFolder={setActiveFolder} />
-        <Serendipity memories={memories} />
         <MemoryFeed
           memories={visibleMemories}
           loading={loading}
@@ -1216,6 +1254,18 @@ export default function Home() {
       <AskAetherModal key={askInitialImage ?? 'none'} open={askOpen} memories={memories} initialImage={askInitialImage} onClose={() => { setAskOpen(false); setAskInitialImage(null) }} onFocusMemory={(id) => { setActiveFolder(null); setHighlightId(id); setTimeout(() => setHighlightId((c) => c === id ? null : c), 4000); setTimeout(() => { const el = document.getElementById(`memory-${id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100); }} />
       <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} onUpgrade={() => { setProfileOpen(false); setUpgradeOpen(true) }} />
       <UpgradeModal open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
+      <ArchiveModal
+        open={archiveOpen}
+        onClose={() => setArchiveOpen(false)}
+        memories={memories}
+        onFocusMemory={(id) => {
+          setArchiveOpen(false)
+          setActiveFolder(null)
+          setHighlightId(id)
+          setTimeout(() => setHighlightId((c) => c === id ? null : c), 4000)
+          setTimeout(() => { const el = document.getElementById(`memory-${id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, 200)
+        }}
+      />
       <LegalModal type={legalType} onClose={() => setLegalType(null)} />
 
       <SonnerToaster

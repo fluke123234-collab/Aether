@@ -19,11 +19,12 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 
-const reviews = [
-  { user: '@dev_monk', text: 'Aether completely cured my tab anxiety. The autonomous organization is flawless.' },
-  { user: '@system_builder', text: 'I threw 40 hardware spec screenshots at it and Ask Aether retrieved the exact CPU name in 400ms.' },
-  { user: '@minimalist_founder', text: 'The audio transcription accuracy is phenomenal. It captures everything I mutter on the move.' },
-  { user: '@alpha_architect', text: 'Finally, a digital sanctuary that doesn\'t force me to manage database tags manually.' },
+const productionReviews = [
+  { name: 'Alex Rivera', handle: '@dev_monk', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80', text: 'Aether completely cured my tab anxiety. The autonomous organization is flawless.' },
+  { name: 'Marcus Chen', handle: '@system_builder', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80', text: 'I threw 40 hardware spec screenshots at it and Ask Aether retrieved the exact CPU name in 400ms.' },
+  { name: 'Sarah Jenkins', handle: '@minimalist_founder', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&h=150&q=80', text: 'The audio transcription accuracy is phenomenal. It captures everything I mutter on the move.' },
+  { name: 'Elena Rostova', handle: '@alpha_architect', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&h=150&q=80', text: 'Finally, a digital sanctuary that doesn\'t force me to manage database tags manually.' },
+  { name: 'David Kim', handle: '@code_wizard', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&h=150&q=80', text: 'Aether Pro has completely supercharged my development workflow. Deep semantic insights are a game-changer.' },
 ]
 
 export function UpgradeModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -181,17 +182,21 @@ export function UpgradeModal({ open, onClose }: { open: boolean; onClose: () => 
           {/* ── Infinite Ambient Reviews Marquee ── */}
           <div className="relative mt-8 w-full overflow-hidden border-t border-neutral-950 pt-8 mask-gradient-x">
             <div className="flex w-max gap-6 animate-marquee whitespace-nowrap">
-              {[...reviews, ...reviews].map((rev, idx) => (
+              {[...productionReviews, ...productionReviews].map((rev, idx) => (
                 <div
                   key={idx}
-                  className="inline-flex min-w-[300px] flex-col rounded-2xl border border-neutral-900 bg-[#050505] px-6 py-4"
+                  className="flex min-w-[320px] max-w-[320px] flex-col justify-between rounded-2xl border border-neutral-900 bg-[#121214] p-5"
                 >
-                  <span className="font-mono text-[13px] tracking-tight text-white">
+                  <p className="text-sm leading-relaxed text-neutral-300">
                     &ldquo;{rev.text}&rdquo;
-                  </span>
-                  <span className="mt-2 font-mono text-[10px] tracking-wider text-neutral-600">
-                    {rev.user} {'//'} Verified Architect
-                  </span>
+                  </p>
+                  <div className="mt-4 flex items-center gap-3">
+                    <img src={rev.avatar} alt={rev.name} className="h-10 w-10 rounded-full border border-neutral-800 object-cover" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-white">{rev.name}</p>
+                      <p className="truncate text-xs text-neutral-500">{rev.handle}</p>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
