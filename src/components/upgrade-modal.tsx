@@ -20,8 +20,8 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 
 const reviews = [
-  { user: '@dev_monk', text: 'Aether completely cured my tab anxiety. The link clamping is flawless.' },
-  { user: '@system_builder', text: 'I threw 40 hardware spec screenshots at it and ⌘K retrieved the exact CPU name in 400ms.' },
+  { user: '@dev_monk', text: 'Aether completely cured my tab anxiety. The autonomous organization is flawless.' },
+  { user: '@system_builder', text: 'I threw 40 hardware spec screenshots at it and Ask Aether retrieved the exact CPU name in 400ms.' },
   { user: '@minimalist_founder', text: 'The audio transcription accuracy is phenomenal. It captures everything I mutter on the move.' },
   { user: '@alpha_architect', text: 'Finally, a digital sanctuary that doesn\'t force me to manage database tags manually.' },
 ]
@@ -101,83 +101,79 @@ export function UpgradeModal({ open, onClose }: { open: boolean; onClose: () => 
             <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-neutral-700">
               00 // THE PORTAL
             </p>
-            <h2 className="mt-3 font-mono text-lg tracking-tight text-neutral-200">
-              Welcome to your thoughts, unified.
+            <h2 className="mt-3 text-2xl sm:text-3xl font-medium tracking-tight text-white">
+              Your Mind on Autopilot.
             </h2>
-            <p className="mt-2 font-mono text-xs text-neutral-600">
-              Choose the depth of your sanctuary&apos;s memory.
+            <p className="mt-2 text-sm text-neutral-400">
+              You dump the chaos. Aether distills the clarity.
+            </p>
+            <p className="mt-3 text-xs text-blue-400">
+              Get started for just $7.99/month. Unlocked forever.
             </p>
           </div>
 
           {/* ── Three low-contrast pricing columns ── */}
           <div className="flex flex-col gap-8 md:flex-row">
 
-            {/* ═══ Column 1: Sanctuary — Current Baseline ═══ */}
-            <div className="flex-1 rounded-3xl border border-neutral-900/80 bg-neutral-950/30 p-6">
+            {/* ═══ Column 1: Mist — Free Baseline ═══ */}
+            <div className="flex-1 rounded-3xl border border-neutral-800/70 bg-neutral-950/40 p-6">
               <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">
-                01 // Sanctuary
+                01 Mist
               </p>
-              <p className="mt-3 font-mono text-2xl text-neutral-300">
-                $0 <span className="text-sm text-neutral-600">/ Forever</span>
+              <p className="mt-3 text-3xl font-semibold text-neutral-300">
+                Free
               </p>
-              <span className="mb-4 mt-4 inline-block rounded-full border border-neutral-800 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-neutral-400">
-                [ CURRENT ]
-              </span>
-              <ul className="space-y-2.5 font-mono text-[13px] text-neutral-500">
-                <li>Unlimited pure text fragments</li>
-                <li>6 Strict auto-sorting folders</li>
-                <li>Standard indexed text search</li>
+              <p className="mt-1 text-xs text-neutral-600">The quiet foundation.</p>
+              <ul className="mt-5 flex-1 space-y-2.5 text-sm text-neutral-500">
+                <li>Unlimited Text Capture</li>
+                <li>Standard Keyword Search</li>
+                <li>6 Core Collections</li>
+                <li>3 Free Premium Actions</li>
+                <li>Full Sanctuary UI</li>
               </ul>
-            </div>
-
-            {/* ═══ Column 2: Monolith — Daily Companion ═══ */}
-            <div className="flex-1 rounded-3xl border border-neutral-800 bg-neutral-950/40 p-6">
-              <p className="font-mono text-xs uppercase tracking-widest text-neutral-200">
-                02 // Monolith
-              </p>
-              <p className="mt-3 font-mono text-2xl text-neutral-200">
-                $5.99 <span className="text-sm text-neutral-500">/ Month</span>
-              </p>
-              <div className="mb-4 mt-4 h-[22px]" aria-hidden />
-              <ul className="space-y-2.5 font-mono text-[13px] text-neutral-400">
-                <li>50 Multi-asset AI captures / mo</li>
-                <li>Native Voice-to-Text translation</li>
-                <li>Deep Link extraction &amp; summaries</li>
-                <li>Optical Snapshot OCR parsing</li>
-              </ul>
-              <button
-                onClick={() => handleSelect('Monolith')}
-                className="mt-5 w-full rounded-xl border border-neutral-700 bg-transparent py-2.5 font-mono text-xs text-white transition-all duration-500 hover:border-white hover:bg-neutral-900/40"
-              >
-                [ INITIALIZE MONOLITH ]
-              </button>
-            </div>
-
-            {/* ═══ Column 3: Aether Pro — Full Spatial Memory ═══ */}
-            <div className="relative flex-1 rounded-3xl border border-neutral-700 bg-neutral-950/60 p-6">
-              {/* Glowing ambient focus halo */}
-              <div className="pointer-events-none absolute -inset-2 rounded-[2rem] bg-white/[0.03] blur-2xl" aria-hidden />
-              <div className="relative">
-                <p className="font-mono text-xs uppercase tracking-widest text-white">
-                  03 // Aether Pro
-                </p>
-                <p className="mt-3 font-mono text-2xl text-white">
-                  $11.99 <span className="text-sm text-neutral-400">/ Month</span>
-                </p>
-                <div className="mb-4 mt-4 h-[22px]" aria-hidden />
-                <ul className="space-y-2.5 font-mono text-[13px] text-neutral-400">
-                  <li><span className="text-white">Unlimited everything</span> (No asset limits)</li>
-                  <li><span className="text-white">Deep Semantic Memory</span> (&#8984;K connects thoughts across months)</li>
-                  <li>Priority execution routing</li>
-                  <li>Micro-insights recap generations</li>
-                </ul>
-                <button
-                  onClick={() => handleSelect('Aether Pro')}
-                  className="mt-5 w-full rounded-xl bg-white py-2.5 font-mono text-xs font-bold text-black transition-all duration-500 hover:bg-neutral-200 hover:scale-[1.02]"
-                >
-                  [ ASCEND TO PRO ]
-                </button>
+              <div className="mt-6 w-full rounded-xl border border-neutral-800 bg-neutral-900/40 py-2.5 text-center text-xs font-medium text-neutral-500">
+                CURRENTLY ACTIVE
               </div>
+            </div>
+
+            {/* ═══ Column 2: Echo — Featured with blue glow ═══ */}
+            <div className="relative flex flex-1 flex-col rounded-3xl border border-blue-500/30 bg-neutral-950/60 p-6 shadow-[0_0_30px_rgba(59,130,246,0.15)]">
+              <div className="pointer-events-none absolute -inset-1 rounded-[2rem] bg-blue-500/5 blur-xl" aria-hidden />
+              <div className="absolute -top-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-blue-500 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]">Most Popular</div>
+              <div className="relative flex flex-1 flex-col">
+                <p className="font-mono text-xs uppercase tracking-widest text-blue-400">02 Echo</p>
+                <p className="mt-3 text-3xl font-semibold text-white">$7.99 <span className="text-sm font-normal text-neutral-400">/ mo</span></p>
+                <p className="mt-1 text-xs text-blue-300/70">Unlock the full autonomous sanctuary. Perfect for effortless mental clarity.</p>
+                <ul className="mt-5 flex-1 space-y-2.5 text-sm text-neutral-300">
+                  <li>Everything in Mist</li>
+                  <li><span className="font-medium text-white">100</span> AI Captures / Month</li>
+                  <li>Image OCR &amp; Voice Transcription</li>
+                  <li>Web Summaries (auto-scrape + tags)</li>
+                  <li>Basic Semantic Search</li>
+                  <li>High-fidelity Waveform UI</li>
+                  <li>Priority Support</li>
+                </ul>
+                <button onClick={() => handleSelect('Echo')} className="mt-6 w-full rounded-xl bg-blue-500 py-2.5 text-center text-xs font-bold text-white shadow-[0_0_20px_rgba(59,130,246,0.4)] transition-all duration-500 hover:bg-blue-400 hover:shadow-[0_0_30px_rgba(59,130,246,0.6)] hover:scale-[1.02]">ASCEND TO ECHO</button>
+              </div>
+            </div>
+
+            {/* ═══ Column 3: Presence — Total Awareness ═══ */}
+            <div className="flex flex-1 flex-col rounded-3xl border border-neutral-700/70 bg-neutral-950/50 p-6">
+              <p className="font-mono text-xs uppercase tracking-widest text-neutral-300">03 Presence</p>
+              <p className="mt-3 text-3xl font-semibold text-neutral-200">$11.99 <span className="text-sm font-normal text-neutral-500">/ mo</span></p>
+              <p className="mt-1 text-xs text-neutral-500">Total, effortless recall. The perfect memory.</p>
+              <ul className="mt-5 flex-1 space-y-2.5 text-sm text-neutral-400">
+                <li>Everything in Echo</li>
+                <li>Unlimited AI Captures</li>
+                <li className="group/tooltip relative cursor-help">Full Spatial Memory
+                  <span className="pointer-events-none absolute bottom-full left-0 mb-2 w-56 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-300 opacity-0 shadow-xl transition-opacity duration-300 group-hover/tooltip:opacity-100">Aether understands the layout and context of your screenshots, not just the text.</span>
+                </li>
+                <li>Deep Semantic Insight (chat with your entire memory)</li>
+                <li>Weekly Micro-Recap Insights</li>
+                <li>Priority Processing (zero-latency)</li>
+              </ul>
+              <button onClick={() => handleSelect('Presence')} className="mt-6 w-full rounded-xl border border-neutral-700 bg-transparent py-2.5 text-center text-xs font-medium text-white transition-all duration-500 hover:border-white hover:bg-neutral-900/40">UNLOCK PRESENCE</button>
+              <p className="mt-3 text-center text-[10px] text-neutral-600">Fair use applies. See Terms of Service.</p>
             </div>
 
           </div>

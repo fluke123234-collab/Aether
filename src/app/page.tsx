@@ -237,7 +237,28 @@ function FloatingCapsule({
   onUpgrade: () => void
 }) {
   const isFreeTier = userTier === 'mist'
+  const ALLOWED_FREE_ACTIONS = 3
+  const [freeActionsUsed, setFreeActionsUsed] = useState(0)
   const [value, setValue] = useState('')
+
+  // Load free action count from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const used = parseInt(localStorage.getItem('aether-free-actions') || '0', 10)
+      setFreeActionsUsed(used)
+    }
+  }, [])
+
+  // Check if free user has exceeded their 3-action allowance
+  const canUsePremiumAction = (): boolean => {
+    if (!isFreeTier) return true
+    if (freeActionsUsed >= ALLOWED_FREE_ACTIONS) return false
+    // Increment the counter
+    const newCount = freeActionsUsed + 1
+    setFreeActionsUsed(newCount)
+    if (typeof window !== 'undefined') localStorage.setItem('aether-free-actions', String(newCount))
+    return true
+  }
   const [pendingImage, setPendingImage] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false) // Rage-click protection lock
   // useVoiceCapture handles speech-to-text transcription (Web Speech API)
@@ -275,8 +296,8 @@ function FloatingCapsule({
   }
 
   const handleVoice = () => {
-    // Pre-flight gate: free tier cannot use voice recording
-    if (isFreeTier) { onUpgrade(); return }
+    // Pre-flight gate: free tier gets 3 premium actions, then paywall
+    if (isFreeTier && !canUsePremiumAction()) { onUpgrade(); return }
     ensureAuthenticated(() => {
       if (listening || recorder.listening) {
         stop()
@@ -297,8 +318,8 @@ function FloatingCapsule({
   }
 
   const handleImagePick = () => {
-    // Pre-flight gate: free tier cannot attach images
-    if (isFreeTier) { onUpgrade(); return }
+    // Pre-flight gate: free tier gets 3 premium actions, then paywall
+    if (isFreeTier && !canUsePremiumAction()) { onUpgrade(); return }
     ensureAuthenticated(() => {
       const input = document.createElement('input')
       input.type = 'file'
@@ -366,9 +387,9 @@ function FloatingCapsule({
             value={value}
             onChange={(e) => {
               const newValue = e.target.value
-              // Pre-flight gate: free tier cannot paste URLs
+              // Pre-flight gate: free tier gets 3 premium actions, then paywall
               const containsUrl = /(https?:\/\/[^\s]+)/i.test(newValue)
-              if (isFreeTier && containsUrl) {
+              if (isFreeTier && containsUrl && !canUsePremiumAction()) {
                 const flushed = newValue.replace(/(https?:\/\/[^\s]+)/gi, '').trim()
                 setValue(flushed)
                 onUpgrade()
