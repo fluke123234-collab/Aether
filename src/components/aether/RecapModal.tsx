@@ -28,10 +28,12 @@ export function RecapModal({ open, onClose, onUpgrade, onInjectFocus }: { open: 
 
   // Load persistent checkbox state from localStorage
   useEffect(() => {
-    if (typeof window === 'undefined') return
     try {
       const saved = localStorage.getItem('aether-recap-debts')
-      if (saved) setCheckedDebts(new Set(JSON.parse(saved)))
+      if (saved) {
+        const parsed = JSON.parse(saved) as number[]
+        setCheckedDebts(new Set(parsed))
+      }
     } catch {}
   }, [])
 
