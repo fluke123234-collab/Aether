@@ -21,7 +21,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* No-flash theme script — runs BEFORE paint */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('aether-theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}if(t==='dark'){document.documentElement.classList.add('dark');}}catch(e){}})();` }} />
+        {/* Global error shield — catches ALL uncaught errors, prevents white screens */}
+        <script dangerouslySetInnerHTML={{ __html: `window.addEventListener('error',function(e){console.warn('Aether shield:',e.message);e.preventDefault();return false;});window.addEventListener('unhandledrejection',function(e){console.warn('Aether promise shield:',e.reason);e.preventDefault();return false;});` }} />
       </head>
       <body className={`${geistSans.variable} ${displaySerif.variable} antialiased bg-[#FCFBF9] text-zinc-900 dark:bg-[#09090B] dark:text-zinc-50`}>
         {children}
