@@ -30,5 +30,13 @@ if (!isSupabaseConfigured) {
 export const supabase: SupabaseClient = createClient(
   supabaseUrl || PLACEHOLDER_URL,
   supabaseAnonKey || PLACEHOLDER_KEY,
-  isSupabaseConfigured ? undefined : { auth: { persistSession: false } }
+  isSupabaseConfigured ? {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      // When offline, don't try to refresh the token — use the cached session
+      flowType: 'pkce',
+    },
+  } : { auth: { persistSession: false } }
 );

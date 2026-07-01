@@ -41,6 +41,7 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { Serendipity } from '@/components/aether/Serendipity'
 import { useVoiceCapture } from '@/hooks/use-voice-capture'
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
+import { useOfflineQueue } from '@/hooks/use-offline-queue'
 import { LiveWaveform, ReplayWaveform } from '@/components/aether/VoiceWaveform'
 import { initTheme, useThemeStore } from '@/lib/theme-store'
 import type { MemoryRow } from '@/lib/types'
@@ -816,13 +817,31 @@ export default function Home() {
   const [userTier, setUserTier] = useState<string>('mist')
   const user = useAuthStore((s) => s.user)
   const userId = user?.id
+  const { queueCapture, checkOnline } = useOfflineQueue()
 
-  // Restore the real Supabase session on mount and keep the auth store in sync.
+  // Restore session on mount — works ONLINE (Supabase refresh) and
+  // OFFLINE (falls back to localStorage cached session).
   useEffect(() => {
     initTheme()
+
+    // Offline-first: check localStorage for a cached session before
+    // hitting the network. This ensures the user stays "signed in"
+    // even when offline.
+    try {
+      const cached = localStorage.getItem('sb-' + (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/https?:\/\/|\..*/g, '') + '-auth-token')
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (parsed?.user) {
+          useAuthStore.getState().setSession(parsed)
+        }
+      }
+    } catch {}
+
+    // Online: try the real Supabase session (refreshes token if needed)
     supabase.auth.getSession().then(({ data: { session } }) => {
-      useAuthStore.getState().setSession(session)
-    })
+      if (session) useAuthStore.getState().setSession(session)
+    }).catch(() => {})
+
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       useAuthStore.getState().setSession(session)
     })
@@ -889,6 +908,19 @@ export default function Home() {
       const trimmed = text.trim()
       if (!trimmed) return
 
+      // Offline check: queue if no connection, show optimistic card
+      if (!checkOnline()) {
+        queueCapture(trimmed)
+        const tempId = `temp-${crypto.randomUUID()}`
+        const optimistic: MemoryRow = {
+          id: tempId, title: 'Saved offline', body: trimmed, summary: null,
+          category: 'idea', tags: ['capture', 'offline'], processing: false,
+          user_id: null, metadata: null, created_at: new Date().toISOString(),
+        }
+        setMemories((prev) => [optimistic, ...prev])
+        return
+      }
+
       const tempId = `temp-${crypto.randomUUID()}`
       const optimistic: MemoryRow = {
         id: tempId,
@@ -940,13 +972,26 @@ export default function Home() {
         }
       })()
     },
-    [refetch]
+    [refetch, checkOnline, queueCapture]
   )
 
   // Capture with an image — sends the image base64 to the server, which
   // analyzes it with the VLM and enriches the memory with its content.
   const addMemoryWithImage = useCallback(
     (text: string, image: string) => {
+      // Offline check: queue if no connection
+      if (!checkOnline()) {
+        queueCapture(text, image)
+        const tempId = `temp-${crypto.randomUUID()}`
+        const optimistic: MemoryRow = {
+          id: tempId, title: 'Saved offline', body: text || 'Image capture', summary: null,
+          category: 'image', tags: ['capture', 'offline'], processing: false,
+          user_id: null, metadata: { imageData: image }, created_at: new Date().toISOString(),
+        }
+        setMemories((prev) => [optimistic, ...prev])
+        return
+      }
+
       const tempId = `temp-${crypto.randomUUID()}`
       const optimistic: MemoryRow = {
         id: tempId,
@@ -997,13 +1042,26 @@ export default function Home() {
         }
       })()
     },
-    [refetch]
+    [refetch, checkOnline, queueCapture]
   )
 
   // Capture with a voice note — sends the audio base64 so the user can
   // play it back later by pressing the memory card.
   const addMemoryWithAudio = useCallback(
     (text: string, audio: string) => {
+      // Offline check: queue if no connection
+      if (!checkOnline()) {
+        queueCapture(text, undefined, audio)
+        const tempId = `temp-${crypto.randomUUID()}`
+        const optimistic: MemoryRow = {
+          id: tempId, title: 'Saved offline', body: text, summary: null,
+          category: 'note', tags: ['capture', 'offline', 'voice'], processing: false,
+          user_id: null, metadata: { audioData: audio }, created_at: new Date().toISOString(),
+        }
+        setMemories((prev) => [optimistic, ...prev])
+        return
+      }
+
       const tempId = `temp-${crypto.randomUUID()}`
       const optimistic: MemoryRow = {
         id: tempId,
@@ -1047,7 +1105,7 @@ export default function Home() {
         }
       })()
     },
-    [refetch]
+    [refetch, checkOnline, queueCapture]
   )
   const toggleFavorite = useCallback((id: string) => {
     setFavorites((prev) => {

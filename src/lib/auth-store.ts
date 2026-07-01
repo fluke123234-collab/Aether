@@ -75,6 +75,24 @@ export const useAuthStore = create<AuthState>((set) => ({
 export function ensureAuthenticated(actionCallback: () => void): boolean {
   const { user, openModal } = useAuthStore.getState()
   if (!user) {
+    // Offline check: if we're offline, check localStorage for a cached session
+    // before showing the auth modal (user might be signed in but session
+    // refresh failed due to no network)
+    if (typeof window !== 'undefined' && !navigator.onLine) {
+      try {
+        const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+        const key = 'sb-' + url.replace(/https?:\/\/|\..*/g, '') + '-auth-token'
+        const cached = localStorage.getItem(key)
+        if (cached) {
+          const parsed = JSON.parse(cached)
+          if (parsed?.user) {
+            useAuthStore.getState().setSession(parsed)
+            actionCallback()
+            return true
+          }
+        }
+      } catch {}
+    }
     openModal()
     return false
   }
