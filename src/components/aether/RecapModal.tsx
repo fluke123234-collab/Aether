@@ -21,21 +21,17 @@ type RecapData = {
 export function RecapModal({ open, onClose, onUpgrade, onInjectFocus }: { open: boolean; onClose: () => void; onUpgrade?: () => void; onInjectFocus?: (text: string) => void }) {
   const [data, setData] = useState<RecapData | null>(null)
   const [recapStage, setRecapStage] = useState<'idle' | 'scanning' | 'connecting' | 'complete'>('idle')
-  const [checkedDebts, setCheckedDebts] = useState<Set<number>>(new Set())
+  // Load persistent checkbox state from localStorage (lazy init)
+  const [checkedDebts, setCheckedDebts] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem('aether-recap-debts')
+      if (saved) return new Set(JSON.parse(saved) as number[])
+    } catch {}
+    return new Set()
+  })
   const [injected, setInjected] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
   const tokenRef = useRef(0)
-
-  // Load persistent checkbox state from localStorage
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('aether-recap-debts')
-      if (saved) {
-        const parsed = JSON.parse(saved) as number[]
-        setCheckedDebts(new Set(parsed))
-      }
-    } catch {}
-  }, [])
 
   // Save checkbox state to localStorage whenever it changes
   useEffect(() => {
