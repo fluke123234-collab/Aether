@@ -1,39 +1,77 @@
-/** Aether · PDF generation utility — single memory PDF */
+/** Aether · PDF generation utility — beautiful single memory PDF */
 export type PrintableMemory = { title: string; body: string; summary: string | null; tags: string[] | null; created_at: string }
 
 function escapePdfText(s: string): string { return s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)') }
 function wrapText(text: string, maxChars: number): string[] { const words = text.split(/\s+/); const lines: string[] = []; let cur = ''; for (const w of words) { if ((cur + ' ' + w).trim().length > maxChars) { if (cur) lines.push(cur); cur = w } else cur = (cur + ' ' + w).trim() } if (cur) lines.push(cur); return lines }
 
+const C = {
+  purple: '0.486 0.310 0.918',
+  purpleLight: '0.95 0.92 1.0',
+  purpleMid: '0.37 0.18 0.56',
+  dark: '0.08 0.08 0.11',
+  body: '0.2 0.2 0.23',
+  muted: '0.55 0.55 0.58',
+  mutedLight: '0.7 0.7 0.72',
+  divider: '0.9 0.89 0.92',
+  dateBg: '0.93 0.91 0.96',
+}
+
 export function generateMemoryPdf(memory: PrintableMemory): Uint8Array {
-  const pageWidth = 595, pageHeight = 842, margin = 72, contentWidth = pageWidth - margin * 2
+  const pageWidth = 595, pageHeight = 842, margin = 64, contentWidth = pageWidth - margin * 2
   let cursorY = pageHeight - margin
   const contentOps: string[] = []
 
-  contentOps.push('0.486 0.310 0.918 rg', `${margin} ${cursorY} 40 3 re f`); cursorY -= 24
-  contentOps.push('0.4 0.4 0.43 rg', 'BT /F2 13 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdfText('Aether')}) Tj ET`); cursorY -= 28
-  contentOps.push('0.55 0.55 0.58 rg', 'BT /F1 8 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdfText('A kept thought · ' + new Date(memory.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }))}) Tj ET`); cursorY -= 30
+  // Top accent bar
+  contentOps.push(C.purple + ' rg', `${margin} ${cursorY} 40 3 re f`)
+  cursorY -= 28
+  // Brand
+  contentOps.push(C.muted + ' rg', 'BT /F2 13 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(Aether) Tj ET`)
+  cursorY -= 22
+  // Date badge
+  const mDate = new Date(memory.created_at).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  const dateWidth = 300
+  contentOps.push(C.dateBg + ' rg', `${margin} ${cursorY - 12} ${dateWidth} 18 re f`)
+  contentOps.push(C.purpleMid + ' rg', 'BT /F2 8 Tf', `1 0 0 1 ${margin + 8} ${cursorY - 6} Tm`, `(${escapePdfText(mDate)}) Tj ET`)
+  cursorY -= 32
 
-  contentOps.push('0.08 0.08 0.11 rg')
-  for (const line of wrapText(memory.title || 'Untitled thought', 48)) { contentOps.push('BT /F3 22 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdfText(line)}) Tj ET`); cursorY -= 28 }
+  // Title (large serif)
+  contentOps.push(C.dark + ' rg')
+  for (const line of wrapText(memory.title || 'Untitled thought', 44)) { contentOps.push('BT /F3 24 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdfText(line)}) Tj ET`); cursorY -= 30 }
   cursorY -= 16
 
-  contentOps.push('0.2 0.2 0.23 rg')
-  for (const line of wrapText(memory.body || '', 78)) { contentOps.push('BT /F1 11 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `1.5 TL (${escapePdfText(line)}) Tj ET`); cursorY -= 17 }
+  // Divider
+  contentOps.push(C.divider + ' rg', `${margin} ${cursorY} ${contentWidth} 0.5 re f`)
+  cursorY -= 24
+
+  // Body
+  contentOps.push(C.body + ' rg')
+  for (const line of wrapText(memory.body.replace(/\s*\[Image content:[\s\S]*?\]\s*/g, '').trim() || memory.body, 78)) { contentOps.push('BT /F1 11 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdfText(line)}) Tj ET`); cursorY -= 17 }
   cursorY -= 20
 
+  // Summary card (luxury)
   if (memory.summary?.trim()) {
-    contentOps.push('0.95 0.92 1.0 rg', `${margin} ${cursorY - 60} ${contentWidth} 70 re f`)
-    contentOps.push('0.486 0.310 0.918 rg', 'BT /F2 9 Tf', `1 0 0 1 ${margin + 16} ${cursorY - 18} Tm`, `(${escapePdfText('Reflection')}) Tj ET`)
-    contentOps.push('0.37 0.18 0.56 rg'); let sy = cursorY - 36
-    for (const line of wrapText(memory.summary, 80)) { contentOps.push('BT /F1 9 Tf', `1 0 0 1 ${margin + 16} ${sy} Tm`, `(${escapePdfText(line)}) Tj ET`); sy -= 14 }
-    cursorY -= 90
+    const summaryLines = wrapText(memory.summary, 80)
+    const cardHeight = Math.max(50, summaryLines.length * 14 + 24)
+    contentOps.push(C.purpleLight + ' rg', `${margin} ${cursorY - cardHeight} ${contentWidth} ${cardHeight} re f`)
+    contentOps.push(C.purple + ' rg', `${margin} ${cursorY - cardHeight} 3 ${cardHeight} re f`)
+    contentOps.push(C.purpleMid + ' rg', 'BT /F2 8 Tf', `1 0 0 1 ${margin + 14} ${cursorY - 14} Tm`, `(REFLECTION) Tj ET`)
+    contentOps.push(C.purpleMid + ' rg')
+    let sy = cursorY - 28
+    for (const line of summaryLines) { contentOps.push('BT /F1 9 Tf', `1 0 0 1 ${margin + 14} ${sy} Tm`, `(${escapePdfText(line)}) Tj ET`); sy -= 13 }
+    cursorY -= cardHeight + 12
   }
 
-  const tags = memory.tags ?? []
-  if (tags.length) { contentOps.push('0.55 0.55 0.58 rg', 'BT /F1 9 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdfText('Tags: ' + tags.join('  ·  '))}) Tj ET`); cursorY -= 20 }
+  // Tags
+  const tags = (memory.tags ?? []).filter(t => t !== 'capture')
+  if (tags.length) {
+    contentOps.push(C.muted + ' rg', 'BT /F1 8 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdfText(tags.map(t => '#' + t).join('   '))}) Tj ET`)
+    cursorY -= 20
+  }
 
-  cursorY = margin
-  contentOps.push('0.7 0.7 0.72 rg', 'BT /F1 8 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(${escapePdfText('Kept in Aether — a quieter place to think')}) Tj ET`)
+  // Footer
+  cursorY = 48
+  contentOps.push(C.mutedLight + ' rg', 'BT /F1 8 Tf', `1 0 0 1 ${margin} ${cursorY} Tm`, `(Kept in Aether — a quieter place to think) Tj ET`)
+  contentOps.push(C.purple + ' rg', `${margin} 42 30 1 re f`)
 
   const stream = contentOps.join('\n')
   const objects: string[] = [
