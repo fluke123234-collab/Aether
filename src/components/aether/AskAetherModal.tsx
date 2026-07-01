@@ -111,7 +111,22 @@ export function AskAetherModal({ open, memories, initialImage, onClose, onFocusM
       if (token !== tokenRef.current) return
       const json = (await res.json()) as AskResponse
       if (token !== tokenRef.current) return
-      if (!res.ok || !json.success) { if (res.status === 401) toast.error('Your session has expired — please sign in again.'); else toast.error('Aether could not answer right now.'); setLoading(false); return }
+      if (!res.ok || !json.success) {
+        if (res.status === 401) { toast.error('Your session has expired — please sign in again.'); setLoading(false); return }
+        // For any other error, still try to give a useful answer from local memories
+        const q = (question || '').toLowerCase().trim()
+        let fallbackAnswer = "I couldn't reach the AI, but here's what I found in your memories:\n\n"
+        let fallbackIds: string[] = []
+        if (q && memories.length > 0) {
+          const keywords = (q.match(/\b[a-z]{4,}\b/g) || []).filter(w => w.length > 3)
+          const scored = memories.map(m => { const t = (m.title||'').toLowerCase(), b = (m.body||'').toLowerCase(); let s = 0; for (const kw of keywords) { if (t.includes(kw)) s += 3; if (b.includes(kw)) s += 1 } return { m, s } })
+          scored.sort((a, b) => b.s - a.s)
+          const top = scored.filter(s => s.s > 0).slice(0, 3)
+          if (top.length > 0) { fallbackIds = top.map(s => s.m.id); fallbackAnswer += top.map((s, i) => `${i+1}. ${s.m.title}: ${(s.m.body||'').slice(0,200)}`).join('\n\n') }
+          else { const r = memories.slice(0,3); fallbackIds = r.map(m=>m.id); fallbackAnswer += r.map((m,i)=>`${i+1}. ${m.title}: ${(m.body||'').slice(0,200)}`).join('\n\n') }
+        } else { fallbackAnswer = memories.length === 0 ? "You don't have any memories yet." : "Try asking about a specific topic you've captured." }
+        setTurns((prev) => [...prev, { question: question || '(image)', answer: fallbackAnswer, memoryIds: fallbackIds, image: image || undefined }]); setLoading(false); return
+      }
       setTurns((prev) => [...prev, { question: question || '(image)', answer: json.answer, memoryIds: json.memoryIds, image: image || undefined }]); setLoading(false)
       // ── Search Resonance Hook: fire-and-forget increment view_count ──
       if (json.memoryIds.length > 0) {
@@ -124,7 +139,41 @@ export function AskAetherModal({ open, memories, initialImage, onClose, onFocusM
           }).catch(() => {})
         }
       }
-    } catch { if (token !== tokenRef.current) return; setTurns((prev) => [...prev, { question: question || '(image)', answer: 'I found your memories but could not reach the AI right now. Try again in a moment.', memoryIds: [], image: image || undefined }]); setLoading(false) }
+    } catch {
+      if (token !== tokenRef.current) return
+      // OFFLINE / NETWORK ERROR: do a client-side search of memories
+      // so the user ALWAYS gets an answer — no "not reachable" message
+      const q = (question || '').toLowerCase().trim()
+      let fallbackAnswer = "I couldn't reach the AI, but here's what I found in your memories:\n\n"
+      let fallbackIds: string[] = []
+
+      if (q && memories.length > 0) {
+        const stopwords = new Set(['what','have','been','thinking','about','your','were','they','from','will','would','could','should','tell','show','find','give','know','think','want','need','this','that','with','just','like','when','which','there','their','more','some','than','very','into','only','also','does','done','made','make','patterns','notice'])
+        const keywords = (q.match(/\b[a-z]{4,}\b/g) || []).filter(w => !stopwords.has(w))
+        const scored = memories.map(m => {
+          const t = (m.title||'').toLowerCase(), b = (m.body||'').toLowerCase()
+          let s = 0; for (const kw of keywords) { if (t.includes(kw)) s += 3; if (b.includes(kw)) s += 1 }
+          return { m, s }
+        })
+        scored.sort((a, b) => b.s - a.s)
+        const top = scored.filter(s => s.s > 0).slice(0, 3)
+        if (top.length > 0) {
+          fallbackIds = top.map(s => s.m.id)
+          fallbackAnswer += top.map((s, i) => `${i+1}. ${s.m.title}: ${(s.m.body||'').slice(0,200)}`).join('\n\n')
+        } else {
+          const recent = memories.slice(0, 3)
+          fallbackIds = recent.map(m => m.id)
+          fallbackAnswer += recent.map((m, i) => `${i+1}. ${m.title}: ${(m.body||'').slice(0,200)}`).join('\n\n')
+        }
+      } else if (memories.length === 0) {
+        fallbackAnswer = "You don't have any memories yet. Capture a thought first, then ask me about it."
+      } else {
+        fallbackAnswer = "I couldn't reach the AI right now. Try asking about a specific topic you've captured."
+      }
+
+      setTurns((prev) => [...prev, { question: question || '(image)', answer: fallbackAnswer, memoryIds: fallbackIds, image: image || undefined }])
+      setLoading(false)
+    }
   }
 
   const memoryById = (id: string) => memories.find((m) => m.id === id)
