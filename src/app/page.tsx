@@ -42,6 +42,8 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { useVoiceCapture } from '@/hooks/use-voice-capture'
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder'
 import { useOfflineQueue } from '@/hooks/use-offline-queue'
+import { usePremiumEnforcer } from '@/hooks/use-premium-enforcer'
+import { InstantPaywall } from '@/components/ui/InstantPaywall'
 import { LiveWaveform, ReplayWaveform } from '@/components/aether/VoiceWaveform'
 import { initTheme, useThemeStore } from '@/lib/theme-store'
 import type { MemoryRow } from '@/lib/types'
@@ -241,8 +243,8 @@ function FloatingCapsule({
   onInjectedFocusConsumed?: () => void
 }) {
   const isFreeTier = userTier === 'mist'
-  const ALLOWED_FREE_ACTIONS = 3
-  const [freeActionsUsed, setFreeActionsUsed] = useState(0)
+  const { verifyActionInstant, getRemaining } = usePremiumEnforcer(userTier)
+  const [paywallOpen, setPaywallOpen] = useState(false)
   const [value, setValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -255,32 +257,21 @@ function FloatingCapsule({
     }
   }, [injectedFocus, onInjectedFocusConsumed])
 
-  // Load free action count from localStorage on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const used = parseInt(localStorage.getItem('aether-free-actions') || '0', 10)
-      setFreeActionsUsed(used)
+  // Instant premium check — synchronous, zero lag
+  const checkPremium = (): boolean => {
+    const remaining = getRemaining()
+    let didProceed = false
+    verifyActionInstant(
+      () => { didProceed = true }, // onSuccess — proceed with the action
+      () => { setPaywallOpen(true) } // triggerPaywall — instant modal mount
+    )
+    if (didProceed && isFreeTier) {
+      const newRemaining = getRemaining()
+      if (newRemaining > 0) {
+        toast(`Free preview: ${newRemaining} action${newRemaining > 1 ? 's' : ''} left`)
+      }
     }
-  }, [])
-
-  // Check if free user has exceeded their 3-action allowance
-  const canUsePremiumAction = (): boolean => {
-    if (!isFreeTier) return true
-    if (freeActionsUsed >= ALLOWED_FREE_ACTIONS) {
-      toast.error('Free limit reached', { description: 'You have used all 3 free premium actions. Upgrade to continue.', action: { label: 'Upgrade', onClick: onUpgrade } })
-      return false
-    }
-    // Increment the counter
-    const newCount = freeActionsUsed + 1
-    setFreeActionsUsed(newCount)
-    if (typeof window !== 'undefined') localStorage.setItem('aether-free-actions', String(newCount))
-    const remaining = ALLOWED_FREE_ACTIONS - newCount
-    if (remaining > 0) {
-      toast(`Free preview: ${remaining} action${remaining > 1 ? 's' : ''} left`, { description: 'Upgrade to Echo for unlimited AI captures.' })
-    } else {
-      toast("That was your last free action!", { description: 'Upgrade to Echo to continue capturing images, voice, and links.', action: { label: 'Upgrade now', onClick: onUpgrade } })
-    }
-    return true
+    return didProceed
   }
   const [pendingImage, setPendingImage] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false) // Rage-click protection lock
@@ -319,8 +310,8 @@ function FloatingCapsule({
   }
 
   const handleVoice = () => {
-    // Pre-flight gate: free tier gets 3 premium actions, then paywall
-    if (isFreeTier && !canUsePremiumAction()) { onUpgrade(); return }
+    // Instant pre-flight gate: synchronous, zero lag
+    if (!checkPremium()) return
     ensureAuthenticated(() => {
       if (listening || recorder.listening) {
         stop()
@@ -341,8 +332,8 @@ function FloatingCapsule({
   }
 
   const handleImagePick = () => {
-    // Pre-flight gate: free tier gets 3 premium actions, then paywall
-    if (isFreeTier && !canUsePremiumAction()) { onUpgrade(); return }
+    // Instant pre-flight gate: synchronous, zero lag
+    if (!checkPremium()) return
     ensureAuthenticated(() => {
       const input = document.createElement('input')
       input.type = 'file'
@@ -412,7 +403,7 @@ function FloatingCapsule({
               const newValue = e.target.value
               // Pre-flight gate: free tier gets 3 premium actions, then paywall
               const containsUrl = /(https?:\/\/[^\s]+)/i.test(newValue)
-              if (isFreeTier && containsUrl && !canUsePremiumAction()) {
+              if (isFreeTier && containsUrl && !checkPremium()) {
                 const flushed = newValue.replace(/(https?:\/\/[^\s]+)/gi, '').trim()
                 setValue(flushed)
                 onUpgrade()
@@ -441,6 +432,7 @@ function FloatingCapsule({
           </button>
         </div>
       </div>
+      <InstantPaywall isOpen={paywallOpen} onClose={() => setPaywallOpen(false)} onUpgrade={onUpgrade} />
     </div>
   )
 }
