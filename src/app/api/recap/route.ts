@@ -11,9 +11,18 @@ export const dynamic = 'force-dynamic'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-const RECAP_PROMPT = `You are Aether — an insightful companion reviewing the user's day. Give them a GENUINELY USEFUL daily reflection — not generic platitudes, but real analysis. BE SPECIFIC. Reference actual content. Find threads, surface tensions, note gaps. Output valid raw JSON: {"distillation":"3-5 sentence summary, second person, name actual topics.","insights":["specific insight 1","specific insight 2","specific insight 3"]}`
+const RECAP_PROMPT = `You are the Aether Autonomous Mind Engine. Do not summarize like a text editor. Analyze the user's unstructured daily dump (text, audio transcriptions, image tags) and output a strict JSON payload with these exact structures:
 
-type RecapResponse = { success: boolean; stats: { total: number; captured: number; recalled: number }; distillation: string; insights: string[]; quiet?: boolean; error?: string }
+{"radar":{"title":"The single highest-density topic they focused on today","truth":"One sentence harsh truth about their productivity pattern today"},"debt":["2-3 implicit unwritten tasks they forgot to explicitly write down, phrased as actionable checklist items"],"catalyst":"One deeply personalized, counter-intuitive prompt designed to unblock their brain tomorrow morning"}
+
+Rules:
+- No corporate jargon or platitudes. Be specific to their actual content.
+- The radar truth must be brutally honest but constructive.
+- The debt items must be real implicit tasks inferred from their notes, not generic.
+- The catalyst must be counter-intuitive — not obvious advice.
+- Output valid raw JSON only, no markdown.`
+
+type RecapResponse = { success: boolean; stats: { total: number; captured: number; recalled: number }; distillation: string; insights: string[]; quiet?: boolean; sparse?: boolean; error?: string }
 
 export async function POST(req: NextRequest) {
   const token = req.headers.get('authorization')?.startsWith('Bearer ') ? req.headers.get('authorization')!.slice(7) : null
@@ -34,22 +43,41 @@ export async function POST(req: NextRequest) {
   }
 
   const memoryText = recentMemories.map((m) => { const t = new Date(m.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); return `[${t}] ${m.title || 'Untitled'}: ${(m.body || '').slice(0, 300)}` }).join('\n\n')
-  let distillation = 'Your day held a few quiet threads worth keeping.'; let insights = ['The act of capturing is itself a form of attention.', 'Notice what recurs.', 'A thought kept is a thought honoured.']
+  let distillation = `You captured ${capturedToday} thoughts today. Here is your mind, mirrored back.`
+  let insights: string[] = []
 
   const raw = await groqChat(
     [
       { role: 'system', content: RECAP_PROMPT },
       { role: 'user', content: memoryText },
     ],
-    { jsonMode: true, timeoutMs: 8000, maxTokens: 500, temperature: 0.6 }
+    { jsonMode: true, timeoutMs: 5000, maxTokens: 400, temperature: 0.7 }
   )
 
   if (raw) {
     try {
       const cleaned = stripFences(raw)
       const p = JSON.parse(cleaned)
-      if (typeof p.distillation === 'string') distillation = p.distillation.slice(0, 500)
-      if (Array.isArray(p.insights)) insights = p.insights.filter((s: unknown) => typeof s === 'string').slice(0, 3)
+      // New Mind Engine format: { radar: { title, truth }, debt: [], catalyst: "" }
+      if (p.radar || p.debt || p.catalyst) {
+        const radarTitle = p.radar?.title ? String(p.radar.title).slice(0, 200) : ''
+        const radarTruth = p.radar?.truth ? String(p.radar.truth).slice(0, 300) : ''
+        const debtItems = Array.isArray(p.debt) ? p.debt.filter((s: unknown) => typeof s === 'string').slice(0, 3).map((s: string) => s.slice(0, 200)) : []
+        const catalyst = p.catalyst ? String(p.catalyst).slice(0, 300) : ''
+
+        // Map to the frontend's distillation + insights format
+        distillation = radarTruth || `Your mind spent today on: ${radarTitle}`
+        insights = [
+          radarTitle ? `🎯 ${radarTitle}` : '',
+          radarTruth ? `Harsh truth: ${radarTruth}` : '',
+          ...debtItems.map((d: string) => `🚨 ${d}`),
+          catalyst ? `⚡ ${catalyst}` : '',
+        ].filter(s => s.length > 0)
+      } else if (typeof p.distillation === 'string') {
+        // Old format fallback
+        distillation = p.distillation.slice(0, 500)
+        if (Array.isArray(p.insights)) insights = p.insights.filter((s: unknown) => typeof s === 'string').slice(0, 3)
+      }
     } catch (err) {
       logger.warn('Aether · recap parse failed:', err instanceof Error ? err.message : err)
     }
