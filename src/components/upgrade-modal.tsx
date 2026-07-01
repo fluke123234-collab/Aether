@@ -113,68 +113,63 @@ export function UpgradeModal({ open, onClose }: { open: boolean; onClose: () => 
             </p>
           </div>
 
-          {/* ── Three low-contrast pricing columns ── */}
-          <div className="flex flex-col gap-8 md:flex-row">
+          {/* ── Three pricing columns — consistent height + bullet count ── */}
+          <div className="flex flex-col gap-6 md:flex-row md:items-stretch">
 
-            {/* ═══ Column 1: Mist — Free Baseline ═══ */}
-            <div className="flex-1 rounded-3xl border border-neutral-800/70 bg-neutral-950/40 p-6">
-              <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">
-                01 Mist
-              </p>
-              <p className="mt-3 text-3xl font-semibold text-neutral-300">
-                Free
-              </p>
+            {/* ═══ Column 1: Mist ═══ */}
+            <div className="flex flex-1 flex-col rounded-3xl border border-neutral-800/70 bg-neutral-950/40 p-6">
+              <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">01 Mist</p>
+              <p className="mt-3 text-3xl font-semibold text-neutral-300">Free</p>
               <p className="mt-1 text-xs text-neutral-600">The quiet foundation.</p>
               <ul className="mt-5 flex-1 space-y-2.5 text-sm text-neutral-500">
-                <li>Unlimited Text Capture</li>
-                <li>Standard Keyword Search</li>
-                <li>6 Core Collections</li>
-                <li>3 Free Premium Actions</li>
-                <li>Full Sanctuary UI</li>
+                <li>Unlimited text capture</li>
+                <li>Standard keyword search</li>
+                <li>6 core collections</li>
+                <li>3 free premium actions</li>
+                <li>Full sanctuary UI</li>
+                <li className="opacity-0">·</li>
+                <li className="opacity-0">·</li>
               </ul>
-              <div className="mt-6 w-full rounded-xl border border-neutral-800 bg-neutral-900/40 py-2.5 text-center text-xs font-medium text-neutral-500">
-                CURRENTLY ACTIVE
-              </div>
+              <div className="mt-6 w-full rounded-xl border border-neutral-800 bg-neutral-900/40 py-2.5 text-center text-xs font-medium text-neutral-500">CURRENTLY ACTIVE</div>
             </div>
 
-            {/* ═══ Column 2: Echo — Featured with blue glow ═══ */}
+            {/* ═══ Column 2: Echo — blue glow ═══ */}
             <div className="relative flex flex-1 flex-col rounded-3xl border border-blue-500/30 bg-neutral-950/60 p-6 shadow-[0_0_30px_rgba(59,130,246,0.15)]">
               <div className="pointer-events-none absolute -inset-1 rounded-[2rem] bg-blue-500/5 blur-xl" aria-hidden />
               <div className="absolute -top-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-blue-500 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]">Most Popular</div>
               <div className="relative flex flex-1 flex-col">
                 <p className="font-mono text-xs uppercase tracking-widest text-blue-400">02 Echo</p>
                 <p className="mt-3 text-3xl font-semibold text-white">$7.99 <span className="text-sm font-normal text-neutral-400">/ mo</span></p>
-                <p className="mt-1 text-xs text-blue-300/70">Unlock the full autonomous sanctuary. Perfect for effortless mental clarity.</p>
+                <p className="mt-1 text-xs text-blue-300/70">Autonomous sanctuary. Effortless clarity.</p>
                 <ul className="mt-5 flex-1 space-y-2.5 text-sm text-neutral-300">
                   <li>Everything in Mist</li>
-                  <li><span className="font-medium text-white">100</span> AI Captures / Month</li>
-                  <li>Image OCR &amp; Voice Transcription</li>
-                  <li>Web Summaries (auto-scrape + tags)</li>
-                  <li>Basic Semantic Search</li>
-                  <li>High-fidelity Waveform UI</li>
-                  <li>Priority Support</li>
+                  <li>100 AI captures / month</li>
+                  <li>Image OCR &amp; voice transcription</li>
+                  <li>Web summaries (auto-scrape + tags)</li>
+                  <li>Basic semantic search</li>
+                  <li>High-fidelity waveform UI</li>
+                  <li>Priority support</li>
                 </ul>
                 <button onClick={() => handleSelect('Echo')} className="mt-6 w-full rounded-xl bg-blue-500 py-2.5 text-center text-xs font-bold text-white shadow-[0_0_20px_rgba(59,130,246,0.4)] transition-all duration-500 hover:bg-blue-400 hover:shadow-[0_0_30px_rgba(59,130,246,0.6)] hover:scale-[1.02]">ASCEND TO ECHO</button>
               </div>
             </div>
 
-            {/* ═══ Column 3: Presence — Total Awareness ═══ */}
+            {/* ═══ Column 3: Presence ═══ */}
             <div className="flex flex-1 flex-col rounded-3xl border border-neutral-700/70 bg-neutral-950/50 p-6">
               <p className="font-mono text-xs uppercase tracking-widest text-neutral-300">03 Presence</p>
               <p className="mt-3 text-3xl font-semibold text-neutral-200">$11.99 <span className="text-sm font-normal text-neutral-500">/ mo</span></p>
-              <p className="mt-1 text-xs text-neutral-500">Total, effortless recall. The perfect memory.</p>
+              <p className="mt-1 text-xs text-neutral-500">Total recall. The perfect memory.</p>
               <ul className="mt-5 flex-1 space-y-2.5 text-sm text-neutral-400">
                 <li>Everything in Echo</li>
-                <li>Unlimited AI Captures</li>
-                <li className="group/tooltip relative cursor-help">Full Spatial Memory
-                  <span className="pointer-events-none absolute bottom-full left-0 mb-2 w-56 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-300 opacity-0 shadow-xl transition-opacity duration-300 group-hover/tooltip:opacity-100">Aether understands the layout and context of your screenshots, not just the text.</span>
-                </li>
-                <li>Deep Semantic Insight (chat with your entire memory)</li>
-                <li>Weekly Micro-Recap Insights</li>
-                <li>Priority Processing (zero-latency)</li>
+                <li>Unlimited AI captures</li>
+                <li>Full spatial memory</li>
+                <li>Deep semantic insight</li>
+                <li>Weekly micro-recap insights</li>
+                <li>Priority processing (zero-latency)</li>
+                <li className="opacity-0">·</li>
               </ul>
               <button onClick={() => handleSelect('Presence')} className="mt-6 w-full rounded-xl border border-neutral-700 bg-transparent py-2.5 text-center text-xs font-medium text-white transition-all duration-500 hover:border-white hover:bg-neutral-900/40">UNLOCK PRESENCE</button>
-              <p className="mt-3 text-center text-[10px] text-neutral-600">Fair use applies. See Terms of Service.</p>
+              <p className="mt-3 text-center text-[10px] text-neutral-600">Fair use applies.</p>
             </div>
 
           </div>
