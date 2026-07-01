@@ -229,17 +229,31 @@ function FloatingCapsule({
   onCaptureWithAudio,
   userTier,
   onUpgrade,
+  injectedFocus,
+  onInjectedFocusConsumed,
 }: {
   onCapture: (text: string) => void
   onCaptureWithImage: (text: string, image: string) => void
   onCaptureWithAudio: (text: string, audio: string) => void
   userTier: string
   onUpgrade: () => void
+  injectedFocus?: string | null
+  onInjectedFocusConsumed?: () => void
 }) {
   const isFreeTier = userTier === 'mist'
   const ALLOWED_FREE_ACTIONS = 3
   const [freeActionsUsed, setFreeActionsUsed] = useState(0)
   const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // When injectedFocus changes, set it as the input value + focus
+  useEffect(() => {
+    if (injectedFocus) {
+      setValue(injectedFocus)
+      onInjectedFocusConsumed?.()
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
+  }, [injectedFocus, onInjectedFocusConsumed])
 
   // Load free action count from localStorage on mount
   useEffect(() => {
@@ -409,6 +423,7 @@ function FloatingCapsule({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
             }}
+            ref={inputRef}
             placeholder="Capture a thought, or ask Aether…"
             className="h-12 flex-1 min-w-0 bg-transparent text-[16px] sm:text-[15px] text-zinc-800 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-0"
           />
@@ -885,6 +900,7 @@ export default function Home() {
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const [userTier, setUserTier] = useState<string>('mist')
   const [archiveOpen, setArchiveOpen] = useState(false)
+  const [injectedFocus, setInjectedFocus] = useState<string | null>(null)
   const user = useAuthStore((s) => s.user)
   const userId = user?.id
   const { queueCapture, checkOnline } = useOfflineQueue()
@@ -1257,10 +1273,13 @@ export default function Home() {
 
       <Footer onOpenLegal={setLegalType} />
 
-      <FloatingCapsule onCapture={addMemory} onCaptureWithImage={addMemoryWithImage} onCaptureWithAudio={addMemoryWithAudio} userTier={userTier} onUpgrade={() => setUpgradeOpen(true)} />
+      <FloatingCapsule onCapture={addMemory} onCaptureWithImage={addMemoryWithImage} onCaptureWithAudio={addMemoryWithAudio} userTier={userTier} onUpgrade={() => setUpgradeOpen(true)} injectedFocus={injectedFocus} onInjectedFocusConsumed={() => setInjectedFocus(null)} />
 
       <AuthModal />
-      <RecapModal open={recapOpen} onClose={() => setRecapOpen(false)} />
+      <RecapModal open={recapOpen} onClose={() => setRecapOpen(false)} onUpgrade={() => setUpgradeOpen(true)} onInjectFocus={(text) => {
+        setRecapOpen(false)
+        setInjectedFocus(text)
+      }} />
       <InsightModal open={insightOpen} memoryId={insightMemory?.id ?? null} memoryTitle={insightMemory?.title ?? ''} onClose={() => setInsightOpen(false)} />
       <AskAetherModal key={askInitialImage ?? 'none'} open={askOpen} memories={memories} initialImage={askInitialImage} onClose={() => { setAskOpen(false); setAskInitialImage(null) }} onFocusMemory={(id) => { setActiveFolder(null); setHighlightId(id); setTimeout(() => setHighlightId((c) => c === id ? null : c), 4000); setTimeout(() => { const el = document.getElementById(`memory-${id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100); }} />
       <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} onUpgrade={() => { setProfileOpen(false); setUpgradeOpen(true) }} />

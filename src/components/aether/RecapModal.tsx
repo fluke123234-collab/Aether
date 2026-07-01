@@ -18,12 +18,28 @@ type RecapData = {
   error?: string
 }
 
-export function RecapModal({ open, onClose, onUpgrade }: { open: boolean; onClose: () => void; onUpgrade?: () => void }) {
+export function RecapModal({ open, onClose, onUpgrade, onInjectFocus }: { open: boolean; onClose: () => void; onUpgrade?: () => void; onInjectFocus?: (text: string) => void }) {
   const [data, setData] = useState<RecapData | null>(null)
   const [recapStage, setRecapStage] = useState<'idle' | 'scanning' | 'connecting' | 'complete'>('idle')
   const [checkedDebts, setCheckedDebts] = useState<Set<number>>(new Set())
+  const [injected, setInjected] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
   const tokenRef = useRef(0)
+
+  // Load persistent checkbox state from localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const saved = localStorage.getItem('aether-recap-debts')
+      if (saved) setCheckedDebts(new Set(JSON.parse(saved)))
+    } catch {}
+  }, [])
+
+  // Save checkbox state to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try { localStorage.setItem('aether-recap-debts', JSON.stringify(Array.from(checkedDebts))) } catch {}
+  }, [checkedDebts])
 
   useEffect(() => {
     if (!open) return
@@ -198,6 +214,28 @@ export function RecapModal({ open, onClose, onUpgrade }: { open: boolean; onClos
                       {catalystItem.replace(/^⚡\s*/, '')}
                       <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-purple-400" />
                     </p>
+                    {/* Inject as Tomorrow's Focus button */}
+                    <button
+                      onClick={() => {
+                        const text = catalystItem.replace(/^⚡\s*/, '')
+                        if (onInjectFocus) {
+                          onInjectFocus(text)
+                        } else {
+                          navigator.clipboard.writeText(text)
+                          toast.success('Catalyst copied to clipboard.')
+                        }
+                        setInjected(true)
+                        setTimeout(() => { onClose(); setInjected(false) }, 600)
+                      }}
+                      disabled={injected}
+                      className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/10 px-4 py-2.5 text-xs font-medium text-purple-300 transition-all duration-300 hover:border-purple-400 hover:bg-purple-500/20 active:scale-95 disabled:opacity-50"
+                    >
+                      {injected ? (
+                        <><Check className="h-3.5 w-3.5" /> Injected! Focus set for tomorrow.</>
+                      ) : (
+                        <><Zap className="h-3.5 w-3.5" /> Inject as Tomorrow's Focus</>
+                      )}
+                    </button>
                   </div>
                 )}
 
