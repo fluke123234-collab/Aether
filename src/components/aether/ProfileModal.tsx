@@ -55,6 +55,18 @@ export function ProfileModal({ open, onClose, onUpgrade }: { open: boolean; onCl
 
   if (!open) return null
 
+  const handleManageSubscription = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) { toast.error('Please sign in.'); return }
+      toast('Opening billing portal…')
+      const res = await fetch('/api/stripe-portal', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } })
+      const data = await res.json()
+      if (data.url) window.location.href = data.url
+      else toast.error('Could not open billing portal.')
+    } catch { toast.error('Could not open billing portal.') }
+  }
+
   const handleToggleNotifications = async () => {
     const next = !notifications; setNotifications(next)
     localStorage.setItem('aether-recap-notif', String(next))
@@ -111,8 +123,17 @@ export function ProfileModal({ open, onClose, onUpgrade }: { open: boolean; onCl
           </div>
           <div className="flex items-center justify-between rounded-2xl border border-zinc-200/50 dark:border-zinc-800/60 bg-zinc-50 dark:bg-zinc-800/50 px-4 py-3">
             <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-500"><Crown className="h-4 w-4" /></div><div><p className="text-sm font-medium capitalize text-zinc-700 dark:text-zinc-300">{tierInfo?.tier || 'mist'} plan</p><p className="text-xs text-zinc-400 dark:text-zinc-500">{tierInfo?.tier === 'presence' ? 'Unlimited AI captures' : tierInfo?.tier === 'echo' ? '100 AI captures / month' : 'Text-only — upgrade for AI captures'}</p></div></div>
-            <button onClick={onUpgrade} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white transition-all duration-300 hover:scale-105 active:scale-95">Upgrade</button>
+            {tierInfo?.tier && tierInfo.tier !== 'mist' ? (
+              <button onClick={handleManageSubscription} className="rounded-full border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 transition-all duration-300 hover:scale-105 active:scale-95">Manage</button>
+            ) : (
+              <button onClick={onUpgrade} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white transition-all duration-300 hover:scale-105 active:scale-95">Upgrade</button>
+            )}
           </div>
+          {tierInfo?.tier && tierInfo.tier !== 'mist' && (
+            <div className="-mt-3 flex justify-end">
+              <button onClick={onUpgrade} className="text-[10px] font-medium text-purple-500 hover:text-purple-600 transition-colors">Upgrade to Presence →</button>
+            </div>
+          )}
           <div className="space-y-1">
             <SettingsRow icon={theme === 'dark' ? Moon : Sun} label="Dark mode" onClick={toggleTheme} right={<Toggle on={theme === 'dark'} />} />
             <SettingsRow icon={notifications ? Bell : BellOff} label="Daily recap notification" onClick={handleToggleNotifications} right={<Toggle on={notifications} />} />

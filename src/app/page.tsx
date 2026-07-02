@@ -389,12 +389,21 @@ function FloatingCapsule({
         </div>
       )}
       <div className="aether-glass-capsule group flex items-center gap-0.5 sm:gap-1 rounded-full border border-zinc-200/50 dark:border-zinc-800/80 bg-white p-1.5 pl-4 sm:pl-6 shadow-[0_8px_30px_rgb(0,0,0,0.015)] backdrop-blur-sm transition-all duration-500 focus-within:shadow-[0_16px_70px_0_rgba(139,92,246,0.06)] focus-within:border-zinc-200 dark:focus-within:border-purple-500/40">
-        {/* When recording, morph the input into a live audio deck */}
+        {/* When recording, morph the input into a clean audio deck */}
         {listening || recorder.listening ? (
-          <div className="flex h-12 flex-1 items-center gap-3 px-1">
-            <span className="flex h-2 w-2 shrink-0 animate-pulse rounded-full bg-rose-500" />
-            <LiveWaveform frequencyData={recorder.frequencyData} barCount={28} />
-            <span className="shrink-0 text-xs font-medium text-purple-500 dark:text-purple-400">REC</span>
+          <div className="flex h-12 flex-1 items-center gap-2 px-2">
+            <span className="flex h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-rose-500" />
+            <span className="shrink-0 text-[11px] font-semibold text-rose-500">REC</span>
+            <div className="flex-1 overflow-hidden">
+              <LiveWaveform frequencyData={recorder.frequencyData} barCount={20} />
+            </div>
+            <button
+              onClick={() => { stop(); recorder.stop() }}
+              aria-label="Stop recording"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 transition-all duration-200 hover:scale-105 active:scale-95"
+            >
+              <span className="h-2.5 w-2.5 rounded-sm bg-white dark:bg-zinc-900" />
+            </button>
           </div>
         ) : (
           <input
