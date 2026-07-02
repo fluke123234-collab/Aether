@@ -17,7 +17,7 @@ export function usePremiumEnforcer(userTier: string) {
     try { return parseInt(localStorage.getItem(STORAGE_KEY) || '0', 10) } catch { return 0 }
   })
 
-  const isFreeTier = userTier === 'mist'
+  const isFreeTier = (userTier || 'mist').toLowerCase() === 'mist'
 
   // Synchronous instant check — called BEFORE any async pipeline
   const verifyActionInstant = useCallback((onSuccess: () => void, triggerPaywall: () => void): boolean => {

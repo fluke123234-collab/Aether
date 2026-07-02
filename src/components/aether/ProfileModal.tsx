@@ -17,6 +17,7 @@ export function ProfileModal({ open, onClose, onUpgrade }: { open: boolean; onCl
   const [notifications, setNotifications] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [tierInfo, setTierInfo] = useState<{ tier: string; usageCount: number; limit: number; remaining: number } | null>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -24,6 +25,14 @@ export function ProfileModal({ open, onClose, onUpgrade }: { open: boolean; onCl
     if (user?.email) setName(user.email.split('@')[0] || '')
     const notifPref = localStorage.getItem('aether-recap-notif')
     setNotifications(notifPref === 'true')
+    // Fetch tier + usage stats every time the modal opens
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.user) return
+      fetch('/api/tier', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } })
+        .then(r => r.json())
+        .then(d => { if (d.success) setTierInfo({ tier: (d.tier || 'mist').toLowerCase(), usageCount: d.usageCount, limit: d.limit, remaining: d.remaining }) })
+        .catch(() => {})
+    })
     const t = setTimeout(() => closeRef.current?.focus(), 30)
     const prev = document.body.style.overflow; document.body.style.overflow = 'hidden'
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -88,7 +97,7 @@ export function ProfileModal({ open, onClose, onUpgrade }: { open: boolean; onCl
             </div>
           </div>
           <div className="flex items-center justify-between rounded-2xl border border-zinc-200/50 dark:border-zinc-800/60 bg-zinc-50 dark:bg-zinc-800/50 px-4 py-3">
-            <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-500"><Crown className="h-4 w-4" /></div><div><p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Free plan</p><p className="text-xs text-zinc-400 dark:text-zinc-500">Upgrade for unlimited memories + AI</p></div></div>
+            <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-500"><Crown className="h-4 w-4" /></div><div><p className="text-sm font-medium capitalize text-zinc-700 dark:text-zinc-300">{tierInfo?.tier || 'mist'} plan</p><p className="text-xs text-zinc-400 dark:text-zinc-500">{tierInfo?.tier === 'presence' ? 'Unlimited AI captures' : tierInfo?.tier === 'echo' ? '100 AI captures / month' : 'Text-only — upgrade for AI captures'}</p></div></div>
             <button onClick={onUpgrade} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white transition-all duration-300 hover:scale-105 active:scale-95">Upgrade</button>
           </div>
           <div className="space-y-1">

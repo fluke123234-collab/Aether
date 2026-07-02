@@ -242,7 +242,7 @@ function FloatingCapsule({
   injectedFocus?: string | null
   onInjectedFocusConsumed?: () => void
 }) {
-  const isFreeTier = userTier === 'mist'
+  const isFreeTier = (userTier || 'mist').toLowerCase() === 'mist'
   const { verifyActionInstant, getRemaining } = usePremiumEnforcer(userTier)
   const [paywallOpen, setPaywallOpen] = useState(false)
   const [value, setValue] = useState('')
@@ -929,17 +929,35 @@ export default function Home() {
     return () => { sub.subscription.unsubscribe() }
   }, [])
 
-  // Fetch the user's tier on sign-in (for the pre-flight premium gate).
+  // Fetch the user's tier on sign-in + after checkout redirect.
   useEffect(() => {
     if (!userId) { setUserTier('mist'); return }
     let active = true
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!active || !session?.user) return
-      fetch('/api/tier', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } })
-        .then(r => r.json())
-        .then(d => { if (active && d.success) setUserTier(d.tier) })
-        .catch(() => {})
-    })
+    const fetchTier = () => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!active || !session?.user) return
+        fetch('/api/tier', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } })
+          .then(r => r.json())
+          .then(d => { if (active && d.success) setUserTier(d.tier?.toLowerCase() || 'mist') })
+          .catch(() => {})
+      })
+    }
+    fetchTier()
+
+    // Check for checkout success redirect — refresh tier after payment
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('checkout') === 'success') {
+        // Wait a moment for webhook to process, then refresh tier
+        setTimeout(() => {
+          fetchTier()
+          toast.success('Welcome to ' + (params.get('tier') || 'Echo') + '!', { description: 'Your sanctuary is now unlocked.' })
+          // Clean URL
+          window.history.replaceState({}, '', '/')
+        }, 2000)
+      }
+    }
+
     return () => { active = false }
   }, [userId])
 

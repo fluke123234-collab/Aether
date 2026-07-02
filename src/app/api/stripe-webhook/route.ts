@@ -58,10 +58,10 @@ export async function POST(req: NextRequest) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
         const userId = session.metadata?.user_id || session.client_reference_id
-        const tier = session.metadata?.tier as 'echo' | 'presence'
+        const tier = (session.metadata?.tier || 'echo').toLowerCase() as 'echo' | 'presence'
 
-        if (!userId || !tier) {
-          console.error('Aether · webhook: missing user_id or tier in metadata')
+        if (!userId) {
+          console.error('Aether · webhook: missing user_id')
           break
         }
 
