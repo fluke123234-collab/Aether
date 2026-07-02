@@ -18,6 +18,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
+import { supabase } from '@/lib/supabase'
 
 const productionReviews = [
   { name: 'Alex Rivera', handle: '@dev_monk', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80', text: 'Aether completely cured my tab anxiety. The autonomous organization is flawless.' },
@@ -48,18 +49,33 @@ export function UpgradeModal({ open, onClose }: { open: boolean; onClose: () => 
 
   if (!open) return null
 
-  const handleSelect = (tier: string) => {
-    // Rage-click protection: hard drop any rapid double-clicks
+  const handleSelect = async (tier: 'echo' | 'presence') => {
     if (isProcessing) return
     setIsProcessing(true)
     try {
-      toast(`${tier} — coming soon.`, {
-        description: 'Billing infrastructure arrives in a future build.',
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) {
+        toast.error('Please sign in first.')
+        setIsProcessing(false)
+        return
+      }
+
+      const res = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ tier }),
       })
-      onClose()
-    } catch {
-      toast.error('Sanctuary busy. One moment…')
-    } finally {
+
+      const data = await res.json()
+
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || 'Could not start checkout')
+      }
+
+      // Redirect to Stripe Checkout
+      window.location.href = data.url
+    } catch (err) {
+      toast.error('Could not start checkout. Please try again.')
       setIsProcessing(false)
     }
   }
