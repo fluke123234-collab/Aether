@@ -17,7 +17,14 @@ export function ProfileModal({ open, onClose, onUpgrade }: { open: boolean; onCl
   const [notifications, setNotifications] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [tierInfo, setTierInfo] = useState<{ tier: string; usageCount: number; limit: number; remaining: number } | null>(null)
+  const [tierInfo, setTierInfo] = useState<{ tier: string; usageCount: number; limit: number; remaining: number } | null>(() => {
+    // INSTANT: load cached tier from localStorage (works offline)
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('aether-user-tier')
+      if (cached) return { tier: cached.toLowerCase(), usageCount: 0, limit: 0, remaining: 0 }
+    }
+    return null
+  })
   const closeRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -25,12 +32,18 @@ export function ProfileModal({ open, onClose, onUpgrade }: { open: boolean; onCl
     if (user?.email) setName(user.email.split('@')[0] || '')
     const notifPref = localStorage.getItem('aether-recap-notif')
     setNotifications(notifPref === 'true')
-    // Fetch tier + usage stats every time the modal opens
+    // Fetch tier + usage stats (syncs cache)
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session?.user) return
       fetch('/api/tier', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } })
         .then(r => r.json())
-        .then(d => { if (d.success) setTierInfo({ tier: (d.tier || 'mist').toLowerCase(), usageCount: d.usageCount, limit: d.limit, remaining: d.remaining }) })
+        .then(d => {
+          if (d.success) {
+            const tier = (d.tier || 'mist').toLowerCase()
+            setTierInfo({ tier, usageCount: d.usageCount, limit: d.limit, remaining: d.remaining })
+            if (typeof window !== 'undefined') localStorage.setItem('aether-user-tier', tier)
+          }
+        })
         .catch(() => {})
     })
     const t = setTimeout(() => closeRef.current?.focus(), 30)

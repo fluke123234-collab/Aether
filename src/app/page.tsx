@@ -929,32 +929,49 @@ export default function Home() {
     return () => { sub.subscription.unsubscribe() }
   }, [])
 
-  // Fetch the user's tier on sign-in + after checkout redirect.
+  // Tier: cache in localStorage for instant load + offline support.
+  // Fetch from API to sync, but always show cached value immediately.
   useEffect(() => {
     if (!userId) { setUserTier('mist'); return }
     let active = true
+
+    // 1. INSTANT: load cached tier from localStorage (works offline)
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('aether-user-tier')
+      if (cached) setUserTier(cached.toLowerCase())
+    }
+
     const fetchTier = () => {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (!active || !session?.user) return
         fetch('/api/tier', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } })
           .then(r => r.json())
-          .then(d => { if (active && d.success) setUserTier(d.tier?.toLowerCase() || 'mist') })
+          .then(d => {
+            if (active && d.success) {
+              const tier = (d.tier || 'mist').toLowerCase()
+              setUserTier(tier)
+              if (typeof window !== 'undefined') localStorage.setItem('aether-user-tier', tier)
+            }
+          })
           .catch(() => {})
       })
     }
+
+    // 2. SYNC: fetch from API (updates cache if tier changed)
     fetchTier()
 
-    // Check for checkout success redirect — refresh tier after payment
+    // 3. CHECKOUT: if returning from Stripe, wait for webhook then refresh
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
       if (params.get('checkout') === 'success') {
-        // Wait a moment for webhook to process, then refresh tier
-        setTimeout(() => {
-          fetchTier()
-          toast.success('Welcome to ' + (params.get('tier') || 'Echo') + '!', { description: 'Your sanctuary is now unlocked.' })
-          // Clean URL
-          window.history.replaceState({}, '', '/')
-        }, 2000)
+        const paidTier = (params.get('tier') || 'echo').toLowerCase()
+        // Optimistically set tier immediately
+        setUserTier(paidTier)
+        localStorage.setItem('aether-user-tier', paidTier)
+        toast.success('Welcome to ' + paidTier + '!', { description: 'Your sanctuary is now unlocked.' })
+        window.history.replaceState({}, '', '/')
+        // Then verify with API after webhook processes
+        setTimeout(() => fetchTier(), 3000)
       }
     }
 
