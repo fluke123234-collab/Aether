@@ -313,21 +313,31 @@ function FloatingCapsule({
     // Instant pre-flight gate: synchronous, zero lag
     if (!checkPremium()) return
     ensureAuthenticated(() => {
+      // If already recording, stop
       if (listening || recorder.listening) {
         stop()
         recorder.stop()
         return
       }
-      if (!supported) {
-        toast('Voice capture needs Chrome or Safari.', { description: 'Your browser does not support speech recognition.' })
+      // Check browser support for MediaRecorder (the actual audio recorder)
+      if (!recorder.supported) {
+        toast('Voice capture needs Chrome, Edge, or Safari.', { description: 'Your browser does not support audio recording.' })
         return
       }
-      // Start BOTH the speech-to-text transcriber AND the native audio recorder.
-      // The recorder provides high-fidelity frequency data for the live waveform
-      // and a better-quality audio blob for storage.
-      recorder.start()
-      const ok = start((text) => setValue(text))
-      if (ok) toast('Listening…', { description: 'Speak — Aether is transcribing.' })
+      // Start the native audio recorder (provides waveform + audio blob for storage)
+      // This is the PRIMARY recorder — works on all modern desktop browsers
+      recorder.start().then((ok) => {
+        if (ok) {
+          toast('Listening…', { description: 'Speak — Aether is recording.' })
+          // Try speech-to-text transcription too (only works in Chrome)
+          // If it fails, the audio recorder still works fine
+          if (supported) {
+            start((text) => setValue(text))
+          }
+        } else {
+          toast.error('Could not access microphone.', { description: 'Check your browser permissions.' })
+        }
+      })
     })
   }
 
